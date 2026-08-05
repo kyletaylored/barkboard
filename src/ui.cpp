@@ -1352,6 +1352,13 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         // series actually exists (i.e. this chart has been populated before).
         lv_chart_series_t* existingSer = lv_chart_get_series_next(s_detailChart, nullptr);
         Serial.printf("[ui] ckpt: post-get_series_next existing=%p\n", (void*)existingSer);
+        {
+            lv_mem_monitor_t mon;
+            lv_mem_monitor(&mon);
+            Serial.printf("[ui] lv_mem: used=%u/%u (%u%%) frag=%u%% biggest_free=%u free_cnt=%u\n",
+                          (unsigned)(mon.total_size - mon.free_size), (unsigned)mon.total_size,
+                          mon.used_pct, mon.frag_pct, (unsigned)mon.free_biggest_size, (unsigned)mon.free_cnt);
+        }
         if (existingSer) lv_chart_remove_series(s_detailChart, existingSer);
         Serial.println("[ui] ckpt: post-remove_series");
         lv_chart_series_t* ser = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
