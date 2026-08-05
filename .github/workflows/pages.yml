@@ -52,6 +52,11 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v7
+        with:
+          # Full history + tags — see build.yml's identical step for why:
+          # tools/get_version.py's `git describe --tags` needs real tag data,
+          # which the default shallow clone doesn't have.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -92,6 +97,21 @@ jobs:
             exit 1
           fi
           cp "$BOOT_APP0" docs/boot_app0.bin
+
+      - name: Stamp manifest.json with the build version
+        run: |
+          set -eu
+          VERSION=$(git describe --tags --always --dirty)
+          echo "version: $VERSION"
+          python3 -c "
+          import json
+          with open('docs/manifest.json') as f:
+              m = json.load(f)
+          m['version'] = '$VERSION'
+          with open('docs/manifest.json', 'w') as f:
+              json.dump(m, f, indent=2)
+              f.write('\n')
+          "
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

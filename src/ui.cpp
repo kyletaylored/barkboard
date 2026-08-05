@@ -2213,6 +2213,16 @@ static void buildBitsIdleIfNeeded() {
     lv_obj_set_style_text_color(s_bitsIdleDate, COLOR_MUTED, 0);
     lv_obj_align(s_bitsIdleDate, LV_ALIGN_BOTTOM_MID, 0, -12);
 
+    // BARKBOARD_VERSION is stamped in at build time from `git describe`
+    // (tools/get_version.py, see platformio.ini's extra_scripts) — this is
+    // the one screen in the app with real "about" framing, so it's the
+    // natural place to surface it.
+    lv_obj_t* versionLbl = lv_label_create(s_bitsIdleScr);
+    lv_obj_set_style_text_font(versionLbl, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(versionLbl, COLOR_MUTED, 0);
+    lv_label_set_text(versionLbl, BARKBOARD_VERSION);
+    lv_obj_align(versionLbl, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+
     lv_timer_create(bitsIdleTick, 1000, nullptr);
 }
 

@@ -22,6 +22,12 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v7
+        with:
+          # Full history + tags — actions/checkout defaults to a shallow
+          # clone (fetch-depth: 1), which has no tag data at all, so
+          # tools/get_version.py's `git describe --tags` would silently fall
+          # through to a bare short-SHA even right after tagging a release.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7

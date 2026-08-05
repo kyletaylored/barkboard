@@ -1,5 +1,16 @@
 #pragma once
 
+// Injected at build time by tools/get_version.py (a PlatformIO pre: extra
+// script; see platformio.ini) via `git describe --tags --always --dirty` —
+// "v1.2.0" right after a tag, "v1.2.0-3-gabc1234" for commits since, "-dirty"
+// appended for uncommitted changes, or the bare short SHA if no tag exists
+// yet at all. This fallback only matters for builds that don't run through
+// that script (the sim/ host build, or an IDE indexer) — real device builds
+// always get the real one.
+#ifndef BARKBOARD_VERSION
+#define BARKBOARD_VERSION "dev"
+#endif
+
 // Display: 320x240 landscape (rotation 1)
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
