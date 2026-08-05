@@ -156,7 +156,7 @@
   .bb-chip-cell .value{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink-strong)}
 
   .bb-console{
-    margin:18px 20px 20px;height:300px;overflow-y:auto;background:var(--console);border:1px solid var(--border);
+    margin:18px 20px 20px;height:440px;min-height:200px;max-height:80vh;resize:vertical;overflow-y:auto;background:var(--console);border:1px solid var(--border);
     border-radius:10px;padding:16px 18px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.7;
   }
   .bb-console::-webkit-scrollbar{width:10px}
@@ -236,6 +236,7 @@
             Autoscroll
             <span class="bb-switch is-on" id="autoscrollSwitch"><span class="thumb"></span></span>
           </button>
+          <button type="button" class="bb-btn-outline" id="btnCopyLog">Copy</button>
           <button type="button" class="bb-btn-outline" id="btnClear">Clear</button>
         </div>
       </div>
@@ -320,6 +321,7 @@ const els = {
   flashRow: document.getElementById('flashRow'),
   btnAutoscroll: document.getElementById('btnAutoscroll'),
   autoscrollSwitch: document.getElementById('autoscrollSwitch'),
+  btnCopyLog: document.getElementById('btnCopyLog'),
   btnClear: document.getElementById('btnClear'),
   btnProgram: document.getElementById('btnProgram'),
   btnErase: document.getElementById('btnErase'),
@@ -382,14 +384,29 @@ els.btnAutoscroll.addEventListener('click', () => {
 });
 els.btnClear.addEventListener('click', clearLogs);
 
+els.btnCopyLog.addEventListener('click', async () => {
+  const text = Array.from(els.consoleEl.querySelectorAll('.bb-log')).map((el) => el.textContent).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = els.btnCopyLog.textContent;
+    els.btnCopyLog.textContent = 'Copied!';
+    setTimeout(() => { els.btnCopyLog.textContent = original; }, 1200);
+  } catch (err) {
+    addLog('Could not copy to clipboard: ' + err, 'error');
+  }
+});
+
 els.tabFlash.addEventListener('click', () => selectTab('flash'));
 els.tabTerminal.addEventListener('click', () => selectTab('terminal'));
 
-function selectTab(tab) {
+function selectTab(tab, opts) {
   state.activeTab = tab;
   els.tabFlash.classList.toggle('is-active', tab === 'flash');
   els.tabTerminal.classList.toggle('is-active', tab === 'terminal');
   els.flashRow.style.display = tab === 'flash' ? '' : 'none';
+  if (!(opts && opts.skipHash)) {
+    try { history.replaceState(null, '', '#' + tab); } catch (e) { location.hash = tab; }
+  }
   const neededMode = tab === 'terminal' ? 'serial' : 'esptool';
   if (state.connected && state.connMode !== neededMode) {
     addLog((tab === 'terminal' ? 'Serial Terminal' : 'Flash Console') + ' needs its own connection — disconnecting.', 'sys');
@@ -398,6 +415,8 @@ function selectTab(tab) {
     startTerminalStream();
   }
 }
+
+selectTab(location.hash === '#terminal' ? 'terminal' : 'flash', { skipHash: true });
 
 // --- About modal ---
 els.btnAbout.addEventListener('click', () => els.aboutOverlay.classList.add('is-open'));
@@ -550,7 +569,7 @@ async function connectSerialOnly() {
 }
 
 async function disconnectDevice() {
-  stopTerminalMode();
+  await stopTerminalMode();
   try {
     if (state.connMode === 'esptool' && transport) await transport.disconnect();
     else if (state.connMode === 'serial' && port) await port.close();
@@ -570,10 +589,15 @@ window.addEventListener('beforeunload', () => {
 // --- Serial terminal (plain WebSerial mode only — never runs alongside esptool) ---
 let rawReadActive = false;
 let termReader = null;
+let terminalStreamPromise = null;
 
-async function startTerminalStream() {
+function startTerminalStream() {
   if (state.connMode !== 'serial' || rawReadActive) return;
   rawReadActive = true;
+  terminalStreamPromise = runTerminalStream();
+}
+
+async function runTerminalStream() {
   const decoder = new TextDecoder();
   try {
     while (port.readable && rawReadActive) {
@@ -594,9 +618,14 @@ async function startTerminalStream() {
   }
 }
 
-function stopTerminalMode() {
+// Closing the port while the reader still holds its lock throws InvalidStateError
+// on the next open() — cancel the reader and wait for the read loop to fully exit
+// (releasing the lock) before the caller proceeds to port.close().
+async function stopTerminalMode() {
   rawReadActive = false;
-  if (termReader) termReader.cancel().catch(() => {});
+  if (termReader) { try { await termReader.cancel(); } catch (e) {} }
+  if (terminalStreamPromise) { try { await terminalStreamPromise; } catch (e) {} }
+  terminalStreamPromise = null;
 }
 
 async function ensureBootloader() {
