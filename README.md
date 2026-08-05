@@ -14,11 +14,11 @@ A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8
 
 ## Installation
 
-1. Web Flasher
+1. **Web Flash**
 
 Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and use the web flasher. Plug in your board, connect to the port, and start the flashing operation.
 
-2. Local Flasher
+2. **Local Flash**
 
 Clone the repository locally, connect your board, and run the commands below.
 
