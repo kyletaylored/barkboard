@@ -344,6 +344,7 @@ els.copyright.textContent = 'Open source, made with 💜 by Kyle Taylor and Data
 const state = {
   connected: false,
   connecting: false,
+  connMode: null,
   activeTab: 'flash',
   autoscroll: true,
   flashing: false,
@@ -389,8 +390,13 @@ function selectTab(tab) {
   els.tabFlash.classList.toggle('is-active', tab === 'flash');
   els.tabTerminal.classList.toggle('is-active', tab === 'terminal');
   els.flashRow.style.display = tab === 'flash' ? '' : 'none';
-  if (tab === 'terminal') enterTerminalMode();
-  else stopTerminalMode();
+  const neededMode = tab === 'terminal' ? 'serial' : 'esptool';
+  if (state.connected && state.connMode !== neededMode) {
+    addLog((tab === 'terminal' ? 'Serial Terminal' : 'Flash Console') + ' needs its own connection — disconnecting.', 'sys');
+    disconnectDevice();
+  } else if (tab === 'terminal') {
+    startTerminalStream();
+  }
 }
 
 // --- About modal ---
@@ -429,15 +435,16 @@ fetch('manifest.json').then((r) => r.json()).then((manifest) => {
 }).catch(() => {});
 
 // --- Device connection state ---
+// Two independent connection modes, never mixed: 'esptool' talks to the chip's ROM
+// bootloader (required for chip info + Program/Erase, and necessarily resets the
+// board to get there) while 'serial' is a plain WebSerial open for tailing the
+// running app's own output, with no reset at all. Switching tabs while connected
+// in the wrong mode disconnects rather than silently reusing the connection.
 let port = null;
 let transport = null;
 let esploader = null;
 let deviceInfo = null;
-// esptool-js puts the chip in its ROM bootloader stub to talk to it; the app's own Serial
-// output only resumes after a hard reset, which is incompatible with programming/erasing
-// until we re-enter the bootloader via esploader.connect().
 let inBootloader = false;
-let rawReadActive = false;
 
 function setStatus(label, cls) {
   els.statusLabel.textContent = label;
@@ -446,7 +453,7 @@ function setStatus(label, cls) {
 }
 
 function updateFlashButtons() {
-  const disabled = !state.connected || state.flashing || state.erasing;
+  const disabled = !state.connected || state.connMode !== 'esptool' || state.flashing || state.erasing;
   els.btnProgram.disabled = disabled;
   els.btnErase.disabled = disabled;
   els.btnProgram.style.opacity = disabled ? 0.45 : 1;
@@ -476,10 +483,11 @@ function setConnectedUI(connected) {
 els.btnConnect.addEventListener('click', () => {
   if (state.connecting) return;
   if (state.connected) { disconnectDevice(); return; }
-  connectDevice();
+  if (state.activeTab === 'terminal') connectSerialOnly();
+  else connectEsptool();
 });
 
-async function connectDevice() {
+async function connectEsptool() {
   if (!('serial' in navigator)) {
     addLog('WebSerial is not supported in this browser.', 'error');
     return;
@@ -500,6 +508,7 @@ async function connectDevice() {
     const flash = await esploader.detectFlashSize();
     deviceInfo = { chipType: chipName, mac, flash };
     updateChips();
+    state.connMode = 'esptool';
     state.connecting = false;
     els.btnConnect.disabled = false;
     setConnectedUI(true);
@@ -508,14 +517,46 @@ async function connectDevice() {
     state.connecting = false;
     els.btnConnect.disabled = false;
     port = null; transport = null; esploader = null; inBootloader = false;
+    state.connMode = null;
+    setConnectedUI(false);
+  }
+}
+
+async function connectSerialOnly() {
+  if (!('serial' in navigator)) {
+    addLog('WebSerial is not supported in this browser.', 'error');
+    return;
+  }
+  state.connecting = true;
+  els.btnConnect.disabled = true;
+  setStatus('Connecting…', 'is-connecting');
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    state.connMode = 'serial';
+    state.connecting = false;
+    els.btnConnect.disabled = false;
+    setConnectedUI(true);
+    addLog('[connected — streaming at 115200 baud]', 'sys');
+    startTerminalStream();
+  } catch (err) {
+    addLog('Connection failed: ' + err, 'error');
+    state.connecting = false;
+    els.btnConnect.disabled = false;
+    port = null;
+    state.connMode = null;
     setConnectedUI(false);
   }
 }
 
 async function disconnectDevice() {
   stopTerminalMode();
-  try { if (transport) await transport.disconnect(); } catch (e) {}
+  try {
+    if (state.connMode === 'esptool' && transport) await transport.disconnect();
+    else if (state.connMode === 'serial' && port) await port.close();
+  } catch (e) {}
   port = null; transport = null; esploader = null; inBootloader = false;
+  state.connMode = null;
   deviceInfo = null;
   updateChips();
   setConnectedUI(false);
@@ -523,22 +564,15 @@ async function disconnectDevice() {
 }
 
 window.addEventListener('beforeunload', () => {
-  if (transport) disconnectDevice();
+  if (state.connected) disconnectDevice();
 });
 
-// --- Serial terminal ---
-// We deliberately never force a chip reset here: auto-reset (RTS pulse) doesn't
-// reliably bring every CYD board variant back to a running state, so streaming
-// only starts once the board is already out of the bootloader on its own. The
-// reader is held directly (not via transport.rawRead) so it can be cancelled
-// cleanly before esptool-js needs the port again for Program/Erase.
+// --- Serial terminal (plain WebSerial mode only — never runs alongside esptool) ---
+let rawReadActive = false;
 let termReader = null;
 
-async function enterTerminalMode() {
-  if (!state.connected || rawReadActive || state.flashing || state.erasing) return;
-  if (inBootloader) {
-    addLog('Board is in flashing mode — press its reset button (or unplug and replug it) to see live output here.', 'sys');
-  }
+async function startTerminalStream() {
+  if (state.connMode !== 'serial' || rawReadActive) return;
   rawReadActive = true;
   const decoder = new TextDecoder();
   try {
@@ -566,7 +600,6 @@ function stopTerminalMode() {
 }
 
 async function ensureBootloader() {
-  stopTerminalMode();
   if (!inBootloader) {
     addLog('Re-entering bootloader...', 'sys');
     await esploader.connect();
