@@ -272,6 +272,11 @@ static lv_obj_t* s_detailStatus = nullptr;
 static lv_obj_t* s_detailQuery  = nullptr;
 static lv_obj_t* s_detailChart  = nullptr;
 static lv_chart_series_t* s_detailSeries = nullptr;   // created once; see buildDetailScreenIfNeeded()
+// Mirrors the currently-plotted (decimated) values, kept around purely so
+// the tap-to-inspect handler on s_detailChart (see buildDetailScreenIfNeeded)
+// can look up a pressed point's real value by index — lv_chart itself only
+// stores the lv_coord_t-cast, already-lossy plotted values.
+static std::vector<double> s_detailChartValues;
 static lv_obj_t* s_detailChartLoLbl  = nullptr;   // y-axis min, bottom-left of chart
 static lv_obj_t* s_detailChartHiLbl  = nullptr;   // y-axis max, top-left of chart
 static lv_obj_t* s_detailCurrentLbl  = nullptr;   // latest plotted value, top-right of chart
@@ -292,7 +297,10 @@ static lv_obj_t* s_detailMuteLbl    = nullptr;
 static long       s_detailMonitorId = 0;
 static bool        s_detailMonitorMuted = false;
 
-#define DETAIL_STATUS_W 90
+// 72, not 90 — "No Data" (the longest status string) still fits comfortably
+// at this font size, and the ~18px it frees widens the marquee title box
+// next to it, which was cramped for longer monitor names.
+#define DETAIL_STATUS_W 72
 // Pinned near the bottom of the screen (240px tall) rather than right under
 // the query line — there's room now that tags are gone and the chart grew
 // to fill the middle, and bottom placement reads more like a persistent
@@ -599,6 +607,15 @@ static String formatCount(int n) {
     return String(n / 1000000.0f, 1) + "M";
 }
 
+// Formats a metric value for the Monitor Detail chart's axis/current-value
+// overlay labels: whole numbers print bare (matches how these show up in
+// Datadog's own UI for count-shaped metrics), fractional ones get 2 decimal
+// places.
+static String formatChartValue(double v) {
+    if (v == (double)(long)v) return String((long)v);
+    return String(v, 2);
+}
+
 void ui::notifyMonitorCountsRefreshed() {
     const dd::MonitorCounts& c = dd::lastMonitorCounts();
     if (s_ovMonitorBadge) {
@@ -882,7 +899,7 @@ static void buildDetailScreenIfNeeded() {
     s_detailName = lv_label_create(s_detailScr);
     lv_obj_set_style_text_font(s_detailName, &outfit_bold_16, 0);
     lv_obj_set_style_text_color(s_detailName, COLOR_INK, 0);
-    lv_obj_set_size(s_detailName, SCREEN_WIDTH - 24 - DETAIL_STATUS_W - 8, 22);
+    lv_obj_set_size(s_detailName, SCREEN_WIDTH - 24 - DETAIL_STATUS_W - 6, 22);
     lv_label_set_long_mode(s_detailName, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_pos(s_detailName, 12, 36);
 
@@ -912,6 +929,22 @@ static void buildDetailScreenIfNeeded() {
     // healthy, unfragmented pool per lv_mem_monitor() — root cause not fully
     // chased down, but avoiding the call entirely sidesteps it).
     s_detailSeries = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
+    // Tap-to-inspect: LV_EVENT_VALUE_CHANGED fires whenever the pressed
+    // point changes (including back to LV_CHART_POINT_NONE on release), and
+    // lv_chart_get_pressed_point() gives its index — both confirmed against
+    // the installed lv_chart.c (LVGL 8.4 has no built-in tooltip, just this
+    // event + getter). Repurposes the "current value" label: shows the
+    // tapped point's value while held, reverts to the latest value on
+    // release.
+    lv_obj_add_event_cb(s_detailChart, [](lv_event_t* e) {
+        lv_obj_t* chart = lv_event_get_target(e);
+        uint32_t idx = lv_chart_get_pressed_point(chart);
+        if (idx != LV_CHART_POINT_NONE && idx < s_detailChartValues.size()) {
+            lv_label_set_text(s_detailCurrentLbl, formatChartValue(s_detailChartValues[idx]).c_str());
+        } else if (!s_detailChartValues.empty()) {
+            lv_label_set_text(s_detailCurrentLbl, formatChartValue(s_detailChartValues.back()).c_str());
+        }
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // Y-axis bounds + latest value — the chart used to be just lines and
     // dots with no indication of actual scale. All three sit on top of the
@@ -1361,14 +1394,6 @@ void ui::showMonitorDetailLoading(const dd::Monitor& cached) {
     lv_scr_load_anim(s_detailScr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
 }
 
-// Formats a metric value for the axis/current-value overlay labels: whole
-// numbers print bare (matches how these show up in Datadog's own UI for
-// count-shaped metrics), fractional ones get 2 decimal places.
-static String formatChartValue(double v) {
-    if (v == (double)(long)v) return String((long)v);
-    return String(v, 2);
-}
-
 void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::MetricPoint>& sparkline,
                            bool sparklineOk, const String& chartError) {
     buildDetailScreenIfNeeded();
@@ -1417,6 +1442,7 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)rangeLo, (lv_coord_t)rangeHi);
         for (double v : decimated) lv_chart_set_next_value(s_detailChart, s_detailSeries, (lv_coord_t)v);
+        s_detailChartValues = decimated;   // tap-to-inspect reads this — see buildDetailScreenIfNeeded()
 
         lv_label_set_text(s_detailChartHiLbl, formatChartValue(hi).c_str());
         lv_label_set_text(s_detailChartLoLbl, formatChartValue(lo).c_str());
@@ -1441,6 +1467,7 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         positionThresholdLine(s_detailCritLine, detail.criticalThreshold);
         positionThresholdLine(s_detailWarnLine, detail.warningThreshold);
     } else {
+        s_detailChartValues.clear();
         lv_obj_add_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailChartHiLbl, LV_OBJ_FLAG_HIDDEN);
