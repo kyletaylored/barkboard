@@ -205,8 +205,6 @@
   .bb-modal-card ul li::before{content:'▪';color:var(--purple);flex:0 0 auto}
   .bb-modal-card code{color:var(--ink-strong)}
 
-  .bb-detail{max-width:900px;margin:24px auto 0;padding:28px}
-  .bb-detail h2{font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 16px}
 
   @media (max-width: 640px){
     .bb-flash-actions{margin-left:0;width:100%}
@@ -221,6 +219,7 @@
     <span class="bb-chip"><span class="dot"></span>Powered by Datadog</span>
   </div>
   <div class="bb-header-right">
+    <a class="bb-link-btn" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener" style="text-decoration:none">Docs</a>
     <button type="button" class="bb-link-btn" id="btnAbout">About</button>
     <div class="bb-status" id="statusPill"><span class="dot"></span><span id="statusLabel">Not connected</span></div>
     <button type="button" class="bb-btn-primary" id="btnConnect">Connect Device</button>
@@ -278,21 +277,13 @@
   </div>
 </div>
 
-<div class="bb-detail bb-card">
-  <h2>Need help?</h2>
-  <p style="color:var(--ink-muted);font-size:14px;line-height:1.6;margin:0">
-    Full setup instructions, hardware requirements, and troubleshooting live in the
-    <a href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener">BarkBoard README</a>.
-  </p>
-</div>
-
 <div class="bb-footer">
   <div class="bb-theme-switch" id="themeSwitch">
     <button type="button" class="bb-theme-btn" data-mode="auto">Auto</button>
     <button type="button" class="bb-theme-btn" data-mode="light">Light</button>
     <button type="button" class="bb-theme-btn" data-mode="dark">Dark</button>
   </div>
-  <div class="bb-copyright" id="copyright">Open source, made with love by Datadog</div>
+  <div class="bb-copyright" id="copyright">Open source, made with 💜 by Kyle Taylor and Datadog</div>
   <a class="bb-github" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener"><span class="dot"></span>GitHub</a>
 </div>
 
@@ -353,7 +344,7 @@ const els = {
   firmwareSelect: document.getElementById('firmwareSelect'),
 };
 
-els.copyright.textContent = 'Open source, made with love by Datadog © ' + new Date().getFullYear();
+els.copyright.textContent = 'Open source, made with 💜 by Kyle Taylor and Datadog © ' + new Date().getFullYear();
 
 const state = {
   connected: false,
