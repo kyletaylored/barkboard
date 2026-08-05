@@ -271,6 +271,7 @@ static lv_obj_t* s_detailName   = nullptr;
 static lv_obj_t* s_detailStatus = nullptr;
 static lv_obj_t* s_detailQuery  = nullptr;
 static lv_obj_t* s_detailChart  = nullptr;
+static lv_chart_series_t* s_detailSeries = nullptr;   // created once; see buildDetailScreenIfNeeded()
 static lv_obj_t* s_detailNoChart = nullptr;
 static lv_obj_t* s_detailMuteResult = nullptr;
 // Action bar: 3 equal slots. Slot 1 is state-aware (Mute <-> Unmute, same
@@ -898,6 +899,14 @@ static void buildDetailScreenIfNeeded() {
     lv_obj_set_style_bg_color(s_detailChart, COLOR_SURFACE, 0);
     lv_obj_set_style_border_color(s_detailChart, COLOR_BORDER, 0);
     lv_chart_set_div_line_count(s_detailChart, 3, 0);
+    // Created once, here, and reused for every monitor viewed this boot —
+    // showMonitorDetail() only ever updates its point count/values in place.
+    // Previously it called lv_chart_remove_series()+lv_chart_add_series() on
+    // every view; that call reliably hung starting on the 2nd monitor opened
+    // (LVGL 8.4.0's TLSF-backed lv_mem_free() never returned, even with a
+    // healthy, unfragmented pool per lv_mem_monitor() — root cause not fully
+    // chased down, but avoiding the call entirely sidesteps it).
+    s_detailSeries = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
 
     s_detailNoChart = lv_label_create(s_detailScr);
     lv_obj_set_style_text_font(s_detailNoChart, &outfit_thin_12, 0);
@@ -1338,33 +1347,9 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         if (lo < -32000) lo = -32000;
         if (hi >  32000) hi =  32000;
 
-        Serial.printf("[ui] ckpt: pre-set_point_count lo=%f hi=%f\n", lo, hi);
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
-        Serial.println("[ui] ckpt: post-set_point_count");
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)lo, (lv_coord_t)hi);
-        Serial.println("[ui] ckpt: post-set_range");
-        // lv_chart_remove_series() asserts its series arg is non-NULL — on a
-        // freshly created chart (first monitor opened this boot) the series
-        // list is empty, so lv_chart_get_series_next(chart, NULL) correctly
-        // returns NULL, and passing that straight through used to trip
-        // LV_ASSERT_HANDLER (default: a bare `while(1);`, no yield) and
-        // permanently hang whichever core called this. Only remove when a
-        // series actually exists (i.e. this chart has been populated before).
-        lv_chart_series_t* existingSer = lv_chart_get_series_next(s_detailChart, nullptr);
-        Serial.printf("[ui] ckpt: post-get_series_next existing=%p\n", (void*)existingSer);
-        {
-            lv_mem_monitor_t mon;
-            lv_mem_monitor(&mon);
-            Serial.printf("[ui] lv_mem: used=%u/%u (%u%%) frag=%u%% biggest_free=%u free_cnt=%u\n",
-                          (unsigned)(mon.total_size - mon.free_size), (unsigned)mon.total_size,
-                          mon.used_pct, mon.frag_pct, (unsigned)mon.free_biggest_size, (unsigned)mon.free_cnt);
-        }
-        if (existingSer) lv_chart_remove_series(s_detailChart, existingSer);
-        Serial.println("[ui] ckpt: post-remove_series");
-        lv_chart_series_t* ser = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
-        Serial.println("[ui] ckpt: post-add_series");
-        for (double v : decimated) lv_chart_set_next_value(s_detailChart, ser, (lv_coord_t)v);
-        Serial.println("[ui] ckpt: post-set_next_value loop");
+        for (double v : decimated) lv_chart_set_next_value(s_detailChart, s_detailSeries, (lv_coord_t)v);
     } else {
         lv_obj_add_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
