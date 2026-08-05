@@ -598,7 +598,12 @@ function startTerminalStream() {
 }
 
 async function runTerminalStream() {
+  // The serial driver delivers data in small raw USB chunks (often ~32 bytes),
+  // unrelated to the source's own line breaks — buffer and split on '\n' so one
+  // Serial.println() call becomes one log line instead of one line per chunk.
   const decoder = new TextDecoder();
+  let lineBuffer = '';
+  const flushLine = (line) => addLog(line.replace(/\r$/, ''), 'default');
   try {
     while (port.readable && rawReadActive) {
       termReader = port.readable.getReader();
@@ -606,7 +611,12 @@ async function runTerminalStream() {
         while (rawReadActive) {
           const { value, done } = await termReader.read();
           if (done) break;
-          addLog(decoder.decode(value), 'default');
+          lineBuffer += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = lineBuffer.indexOf('\n')) >= 0) {
+            flushLine(lineBuffer.slice(0, idx));
+            lineBuffer = lineBuffer.slice(idx + 1);
+          }
         }
       } finally {
         termReader.releaseLock();
@@ -615,6 +625,8 @@ async function runTerminalStream() {
     }
   } catch (err) {
     if (rawReadActive) addLog('[serial read error: ' + err + ']', 'error');
+  } finally {
+    if (lineBuffer) flushLine(lineBuffer);
   }
 }
 
@@ -641,6 +653,68 @@ async function fetchPart(part) {
   const res = await fetch(part.path);
   const buf = await res.arrayBuffer();
   return { data: new Uint8Array(buf), address: part.offset };
+}
+
+// Minimal MD5 (RFC 1321) so we can verify what actually landed in flash by comparing
+// against the chip's own flashMd5sum() readback — the RTS-pin auto-reset isn't reliable
+// on every CYD board variant, so "the board rebooted" is not proof the write succeeded,
+// but a matching checksum is.
+function md5Hex(bytes) {
+  function rotl(x, c) { return (x << c) | (x >>> (32 - c)); }
+  const s = [
+    7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+    5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+    4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+    6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21,
+  ];
+  const K = new Int32Array(64);
+  for (let i = 0; i < 64; i++) K[i] = (Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296)) | 0;
+
+  const msgLen = bytes.length;
+  let totalLen = msgLen + 1;
+  while (totalLen % 64 !== 56) totalLen++;
+  totalLen += 8;
+  const buf = new Uint8Array(totalLen);
+  buf.set(bytes, 0);
+  buf[msgLen] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(totalLen - 8, (msgLen * 8) >>> 0, true);
+  dv.setUint32(totalLen - 4, Math.floor((msgLen * 8) / 4294967296) >>> 0, true);
+
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  for (let chunkStart = 0; chunkStart < totalLen; chunkStart += 64) {
+    const M = new Int32Array(16);
+    for (let j = 0; j < 16; j++) M[j] = dv.getInt32(chunkStart + j * 4, true);
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      F = (F + A + K[i] + M[g]) | 0;
+      A = D; D = C; C = B;
+      B = (B + rotl(F, s[i])) | 0;
+    }
+    a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
+  }
+  const out = new Uint8Array(16);
+  const odv = new DataView(out.buffer);
+  odv.setInt32(0, a0, true); odv.setInt32(4, b0, true);
+  odv.setInt32(8, c0, true); odv.setInt32(12, d0, true);
+  return Array.from(out).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyWrittenFlash(files) {
+  let allOk = true;
+  for (const file of files) {
+    const expected = md5Hex(file.data);
+    const actual = await esploader.flashMd5sum(file.address, file.data.length);
+    const ok = actual.toLowerCase() === expected.toLowerCase();
+    addLog((ok ? 'Verified ' : 'MISMATCH ') + '0x' + file.address.toString(16) + ' (' + file.data.length + ' bytes)', ok ? 'ok' : 'error');
+    if (!ok) allOk = false;
+  }
+  return allOk;
 }
 
 els.btnProgram.addEventListener('click', async () => {
@@ -672,13 +746,19 @@ els.btnProgram.addEventListener('click', async () => {
         els.progressFill.style.width = overallPct + '%';
       },
     });
-    els.progressLabel.textContent = 'Restarting...';
+    els.progressLabel.textContent = 'Verifying...';
     els.progressPercent.textContent = '100%';
     els.progressFill.style.width = '100%';
+    addLog('Wrote all partitions — verifying checksums before reset...', 'sys');
+    const verified = await verifyWrittenFlash(files);
     await esploader.after('hard_reset');
     inBootloader = false;
-    addLog('Finished flashing firmware.', 'ok');
-    addLog('Board restarted into BarkBoard.', 'sys');
+    if (verified) {
+      addLog('Finished flashing firmware — all partitions verified.', 'ok');
+    } else {
+      addLog('Flashing finished but one or more partitions failed verification — do not trust this flash.', 'error');
+    }
+    addLog('Attempted an automatic reset. If the screen stays blank, press the board’s physical reset button once — auto-reset isn’t reliable on every CYD board.', 'sys');
   } catch (err) {
     addLog('Flashing failed: ' + err, 'error');
   } finally {
