@@ -548,6 +548,8 @@ void loop() {
             g_netJob.running = false;
             g_netJob.done = false;
             portEXIT_CRITICAL(&g_netMux);
+            Serial.printf("[loop] ckpt: post-critical type=%d running=%d done=%d\n",
+                          (int)job.type, job.running, job.done);
 
             if (job.running) {
                 // PollAmbient never sets running=true (silent background
@@ -565,7 +567,9 @@ void loop() {
             if (job.done) {
                 switch (job.type) {
                     case NetJobType::PollAmbient:
+                        Serial.println("[loop] ckpt: pre-notifyMonitorCountsRefreshed");
                         ui::notifyMonitorCountsRefreshed();
+                        Serial.println("[loop] ckpt: post-notifyMonitorCountsRefreshed");
                         if (ui::currentScreen() == ui::Screen::Incidents) ui::notifyIncidentsRefreshed();
                         break;
                     case NetJobType::MonitorDetail: {
@@ -582,7 +586,9 @@ void loop() {
                         for (const dd::Monitor& lm : dd::lastMonitors()) {
                             if (lm.id == r.id) { m.name = lm.name; m.query = lm.query; break; }
                         }
+                        Serial.println("[loop] ckpt: pre-showMonitorDetail");
                         ui::showMonitorDetail(m, r.chart, r.chartOk, r.err);
+                        Serial.println("[loop] ckpt: post-showMonitorDetail");
                         break;
                     }
                     case NetJobType::FetchOnCall: {
