@@ -272,6 +272,11 @@ static lv_obj_t* s_detailStatus = nullptr;
 static lv_obj_t* s_detailQuery  = nullptr;
 static lv_obj_t* s_detailChart  = nullptr;
 static lv_chart_series_t* s_detailSeries = nullptr;   // created once; see buildDetailScreenIfNeeded()
+static lv_obj_t* s_detailChartLoLbl  = nullptr;   // y-axis min, bottom-left of chart
+static lv_obj_t* s_detailChartHiLbl  = nullptr;   // y-axis max, top-left of chart
+static lv_obj_t* s_detailCurrentLbl  = nullptr;   // latest plotted value, top-right of chart
+static lv_obj_t* s_detailCritLine    = nullptr;   // horizontal reference line at options.thresholds.critical
+static lv_obj_t* s_detailWarnLine    = nullptr;   // horizontal reference line at options.thresholds.warning
 static lv_obj_t* s_detailNoChart = nullptr;
 static lv_obj_t* s_detailMuteResult = nullptr;
 // Action bar: 3 equal slots. Slot 1 is state-aware (Mute <-> Unmute, same
@@ -908,6 +913,53 @@ static void buildDetailScreenIfNeeded() {
     // chased down, but avoiding the call entirely sidesteps it).
     s_detailSeries = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
 
+    // Y-axis bounds + latest value — the chart used to be just lines and
+    // dots with no indication of actual scale. All three sit on top of the
+    // chart (children of s_detailScr, not s_detailChart, so they aren't
+    // affected by the chart's own point/series churn) and get repositioned/
+    // retexted in showMonitorDetail() each time the range changes.
+    s_detailChartHiLbl = lv_label_create(s_detailScr);
+    lv_obj_set_style_text_font(s_detailChartHiLbl, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_detailChartHiLbl, COLOR_MUTED, 0);
+    lv_obj_set_pos(s_detailChartHiLbl, 16, 66);
+
+    s_detailChartLoLbl = lv_label_create(s_detailScr);
+    lv_obj_set_style_text_font(s_detailChartLoLbl, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_detailChartLoLbl, COLOR_MUTED, 0);
+    lv_obj_set_pos(s_detailChartLoLbl, 16, 64 + 100 - 16);
+
+    s_detailCurrentLbl = lv_label_create(s_detailScr);
+    lv_obj_set_style_text_font(s_detailCurrentLbl, &outfit_bold_12, 0);
+    lv_obj_set_style_text_color(s_detailCurrentLbl, COLOR_INK, 0);
+    lv_obj_set_size(s_detailCurrentLbl, SCREEN_WIDTH - 24 - 16, 16);
+    lv_obj_set_style_text_align(s_detailCurrentLbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(s_detailCurrentLbl, 12, 66);
+
+    // Threshold reference lines — thin bars, not part of the chart widget
+    // (lv_chart has no native reference-line primitive in LVGL 8.x), laid
+    // over it in the same coordinate space (both are direct children of
+    // s_detailScr at the chart's own x/12..SCREEN_WIDTH-12, y 64..164).
+    // Hidden by default; only shown when thresholdsApplicable and the
+    // threshold value falls within the current chart's y-range (see
+    // showMonitorDetail() — a query wrapped in anomalies()/outliers()/etc.
+    // compares a deviation band, not the plotted value, against this
+    // threshold, so drawing it here would misrepresent what it means).
+    s_detailCritLine = lv_obj_create(s_detailScr);
+    lv_obj_set_size(s_detailCritLine, SCREEN_WIDTH - 24, 2);
+    lv_obj_set_style_bg_color(s_detailCritLine, COLOR_ALERT, 0);
+    lv_obj_set_style_bg_opa(s_detailCritLine, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(s_detailCritLine, 0, 0);
+    lv_obj_clear_flag(s_detailCritLine, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_detailCritLine, LV_OBJ_FLAG_HIDDEN);
+
+    s_detailWarnLine = lv_obj_create(s_detailScr);
+    lv_obj_set_size(s_detailWarnLine, SCREEN_WIDTH - 24, 2);
+    lv_obj_set_style_bg_color(s_detailWarnLine, COLOR_WARN, 0);
+    lv_obj_set_style_bg_opa(s_detailWarnLine, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(s_detailWarnLine, 0, 0);
+    lv_obj_clear_flag(s_detailWarnLine, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_detailWarnLine, LV_OBJ_FLAG_HIDDEN);
+
     s_detailNoChart = lv_label_create(s_detailScr);
     lv_obj_set_style_text_font(s_detailNoChart, &outfit_thin_12, 0);
     lv_obj_set_style_text_color(s_detailNoChart, COLOR_MUTED, 0);
@@ -1309,11 +1361,17 @@ void ui::showMonitorDetailLoading(const dd::Monitor& cached) {
     lv_scr_load_anim(s_detailScr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
 }
 
+// Formats a metric value for the axis/current-value overlay labels: whole
+// numbers print bare (matches how these show up in Datadog's own UI for
+// count-shaped metrics), fractional ones get 2 decimal places.
+static String formatChartValue(double v) {
+    if (v == (double)(long)v) return String((long)v);
+    return String(v, 2);
+}
+
 void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::MetricPoint>& sparkline,
                            bool sparklineOk, const String& chartError) {
-    Serial.println("[ui] ckpt: showMonitorDetail enter");
     buildDetailScreenIfNeeded();
-    Serial.println("[ui] ckpt: post-buildDetailScreenIfNeeded");
     s_detailMonitorId = detail.id;
 
     lv_label_set_text(s_detailName, detail.name.c_str());
@@ -1322,11 +1380,13 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
     lv_label_set_text(s_detailQuery, detail.query.c_str());
     lv_label_set_text(s_detailMuteResult, "");
     updateMuteActionBar(detail.muted);
-    Serial.println("[ui] ckpt: post-labels");
 
     if (sparklineOk && sparkline.size() >= 2) {
         lv_obj_clear_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_detailChartHiLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_detailChartLoLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_detailCurrentLbl, LV_OBJ_FLAG_HIDDEN);
 
         // Decimate to ~40 points (BARKBOARD_PLAN.md §4) to keep the LVGL
         // pool happy regardless of how many raw points came back.
@@ -1335,24 +1395,59 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         int stride = (n > MAX_POINTS) ? (n / MAX_POINTS) : 1;
         std::vector<double> decimated;
         for (int i = 0; i < n; i += stride) decimated.push_back(sparkline[i].value);
-        Serial.printf("[ui] ckpt: post-decimate n=%d stride=%d decimated=%u\n", n, stride, (unsigned)decimated.size());
 
         double lo = decimated[0], hi = decimated[0];
         for (double v : decimated) { if (v < lo) lo = v; if (v > hi) hi = v; }
-        if (lo == hi) { lo -= 1; hi += 1; }
+        // Widen the range slightly to fit critical/warning threshold lines
+        // that sit just outside the data's own min/max, so they aren't
+        // clipped flush against the chart's top/bottom edge.
+        double rangeLo = lo, rangeHi = hi;
+        if (detail.thresholdsApplicable) {
+            if (!isnan(detail.criticalThreshold)) { rangeLo = min(rangeLo, detail.criticalThreshold); rangeHi = max(rangeHi, detail.criticalThreshold); }
+            if (!isnan(detail.warningThreshold))  { rangeLo = min(rangeLo, detail.warningThreshold);  rangeHi = max(rangeHi, detail.warningThreshold); }
+        }
+        if (rangeLo == rangeHi) { rangeLo -= 1; rangeHi += 1; }
         // lv_coord_t is int16_t on this build (LV_USE_LARGE_COORD=0) — clamp
         // before the cast below, since some metrics (e.g. an hourly error-
         // count rate) can genuinely exceed +/-32767, and casting an
         // out-of-range double to a narrower int type is undefined behavior.
-        if (lo < -32000) lo = -32000;
-        if (hi >  32000) hi =  32000;
+        if (rangeLo < -32000) rangeLo = -32000;
+        if (rangeHi >  32000) rangeHi =  32000;
 
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
-        lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)lo, (lv_coord_t)hi);
+        lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)rangeLo, (lv_coord_t)rangeHi);
         for (double v : decimated) lv_chart_set_next_value(s_detailChart, s_detailSeries, (lv_coord_t)v);
+
+        lv_label_set_text(s_detailChartHiLbl, formatChartValue(hi).c_str());
+        lv_label_set_text(s_detailChartLoLbl, formatChartValue(lo).c_str());
+        lv_label_set_text(s_detailCurrentLbl, formatChartValue(decimated.back()).c_str());
+
+        // Threshold reference lines — position within the chart's own 100px
+        // plot area (y 64..164) by linear-interpolating the threshold value
+        // into that range, same math the chart itself uses internally.
+        // Approximate: doesn't account for the chart's few px of internal
+        // padding around the plotted line, so lines may sit a couple of
+        // pixels off from the actual data — acceptable at this panel size.
+        auto positionThresholdLine = [&](lv_obj_t* line, double threshold) {
+            if (!detail.thresholdsApplicable || isnan(threshold) || threshold < rangeLo || threshold > rangeHi) {
+                lv_obj_add_flag(line, LV_OBJ_FLAG_HIDDEN);
+                return;
+            }
+            double frac = (threshold - rangeLo) / (rangeHi - rangeLo);
+            int y = 64 + (int)((1.0 - frac) * 100.0) - 1;
+            lv_obj_set_pos(line, 12, y);
+            lv_obj_clear_flag(line, LV_OBJ_FLAG_HIDDEN);
+        };
+        positionThresholdLine(s_detailCritLine, detail.criticalThreshold);
+        positionThresholdLine(s_detailWarnLine, detail.warningThreshold);
     } else {
         lv_obj_add_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailChartHiLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailChartLoLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailCurrentLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailCritLine, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailWarnLine, LV_OBJ_FLAG_HIDDEN);
         // Show the real reason, not a blanket claim — many "no chart"
         // cases are a query error (advanced monitor types like anomaly/
         // outlier/forecast embed monitor-evaluation syntax in their `query`
@@ -1363,9 +1458,7 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
     }
 
     s_screen = ui::Screen::MonitorDetail;
-    Serial.println("[ui] ckpt: pre-scr_load_anim");
     lv_scr_load_anim(s_detailScr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
-    Serial.println("[ui] ckpt: post-scr_load_anim");
 }
 
 void ui::applyMuteResult(bool ok, const String& msg) {

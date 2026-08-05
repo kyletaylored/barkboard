@@ -28,6 +28,15 @@ struct Monitor {
     long   lastTriggeredTs = 0;   // overall_state_modified, unix seconds
     std::vector<String> tags;     // only populated by fetchMonitorDetail()
     bool   muted = false;         // options.silenced non-empty; only populated by fetchMonitorDetail()
+    // options.thresholds.{critical,warning}; NAN = not set. Only meaningful as
+    // a literal reference line on the raw-metric chart when the query isn't
+    // wrapped in a detection function (anomalies/outliers/forecast/change) —
+    // those compare a *deviation band*, not the plotted value, against this
+    // threshold, so drawing it as a horizontal line would misrepresent what
+    // it means. See thresholdsApplicable (set by fetchMonitorChartSeries).
+    double criticalThreshold = NAN;
+    double warningThreshold  = NAN;
+    bool   thresholdsApplicable = false;
 };
 
 struct Incident {
@@ -155,6 +164,9 @@ struct MonitorDetailResult {
     std::vector<MetricPoint> chart;
     bool chartOk = false;
     String err;   // whichever of detail/chart failed; detailOk==false means it's the detail fetch's error
+    double criticalThreshold = NAN;
+    double warningThreshold  = NAN;
+    bool   thresholdsApplicable = false;
 };
 bool fetchMonitorDetailAndChart(long monitorId);
 const MonitorDetailResult& lastMonitorDetailResult();

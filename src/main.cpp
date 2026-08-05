@@ -299,12 +299,6 @@ static void netTask(void*) {
     bool myTeamsAutoFetchDone = false;
 
     for (;;) {
-        // Same diagnostic heartbeat as loop()'s (core 1) — comparing the two
-        // in one capture shows whether a Monitor Detail freeze is core 0
-        // stuck waiting on the network (this heartbeat stops, loop()'s
-        // keeps going) or something stalling core 1 too (both stop).
-        if (millis() % 1000 < 5) Serial.printf("[netTask] alive @ %lu\n", millis());
-
         if (netcfg::isConnected() && isConfiguredThrottled()) {
             // Auto-detect the team scope fallback (dd::bareTeamScope()) once
             // per boot via filter[me] — only when the manual Team field is
@@ -444,18 +438,7 @@ void setup() {
 }
 
 void loop() {
-    // Purely diagnostic — confirmed the Monitor Detail freeze reproduces on
-    // every monitor (not one flaky query), which points more at a genuine
-    // core-1 stall than intermittent network flakiness. This is the very
-    // first statement in loop() specifically so its timestamp pins down
-    // exactly when core 1 stops executing at all, vs. core 1 staying alive
-    // while only core 0's netTask() is stuck waiting on the network.
-    // Stateless millis()%1000 throttle, not a new static — DRAM here is
-    // razor-thin (see CLAUDE.md build history).
-    if (millis() % 1000 < 5) Serial.printf("[loop] alive @ %lu\n", millis());
-
     netcfg::process();
-    if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-netcfg");
 
     // Drain UI updates queued by the WiFi task (core 0).
     if (g_uiPortalDirty || g_uiStatusDirty) {
@@ -474,7 +457,6 @@ void loop() {
     }
 
     display::tick();
-    if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-tick1");
 
     if (netcfg::isConnected()) {
         if (!wasConnected) {
@@ -514,9 +496,7 @@ void loop() {
             ui::showOverview();
             ui::setStatusOnline(true);
         }
-        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: pre-portal");
         portal::loop();
-        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-portal");
 
         // Clock tick — once per 30s update HH:MM. Format (12h/24h) is a
         // Settings-page preference; still UTC (no timezone picker yet —
@@ -535,7 +515,6 @@ void loop() {
             }
         }
 
-        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: pre-netjob-check");
         // Drain netTask()'s (core 0) job status — ambient poll, Monitor
         // Detail, and On-Call all land here now instead of blocking this
         // loop directly (see the NetJobStatus/netTask() comment above
@@ -548,8 +527,6 @@ void loop() {
             g_netJob.running = false;
             g_netJob.done = false;
             portEXIT_CRITICAL(&g_netMux);
-            Serial.printf("[loop] ckpt: post-critical type=%d running=%d done=%d\n",
-                          (int)job.type, job.running, job.done);
 
             if (job.running) {
                 // PollAmbient never sets running=true (silent background
@@ -567,9 +544,7 @@ void loop() {
             if (job.done) {
                 switch (job.type) {
                     case NetJobType::PollAmbient:
-                        Serial.println("[loop] ckpt: pre-notifyMonitorCountsRefreshed");
                         ui::notifyMonitorCountsRefreshed();
-                        Serial.println("[loop] ckpt: post-notifyMonitorCountsRefreshed");
                         if (ui::currentScreen() == ui::Screen::Incidents) ui::notifyIncidentsRefreshed();
                         break;
                     case NetJobType::MonitorDetail: {
@@ -586,9 +561,10 @@ void loop() {
                         for (const dd::Monitor& lm : dd::lastMonitors()) {
                             if (lm.id == r.id) { m.name = lm.name; m.query = lm.query; break; }
                         }
-                        Serial.println("[loop] ckpt: pre-showMonitorDetail");
+                        m.criticalThreshold = r.criticalThreshold;
+                        m.warningThreshold = r.warningThreshold;
+                        m.thresholdsApplicable = r.thresholdsApplicable;
                         ui::showMonitorDetail(m, r.chart, r.chartOk, r.err);
-                        Serial.println("[loop] ckpt: post-showMonitorDetail");
                         break;
                     }
                     case NetJobType::FetchOnCall: {

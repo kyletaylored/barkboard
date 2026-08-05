@@ -460,6 +460,8 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
     filter["type"] = true;
     filter["tags"] = true;
     filter["options"]["silenced"] = true;
+    filter["options"]["thresholds"]["critical"] = true;
+    filter["options"]["thresholds"]["warning"] = true;
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
 
@@ -477,6 +479,10 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
     // somewhere. Not verified live (no muted monitor in the test org at the
     // time this was written) — best-effort against the documented shape.
     out.muted = doc["options"]["silenced"].as<JsonObject>().size() > 0;
+    JsonVariant crit = doc["options"]["thresholds"]["critical"];
+    JsonVariant warn = doc["options"]["thresholds"]["warning"];
+    out.criticalThreshold = crit.is<double>() ? crit.as<double>() : NAN;
+    out.warningThreshold  = warn.is<double>() ? warn.as<double>() : NAN;
     return true;
 }
 
@@ -801,6 +807,37 @@ static bool isChartableMonitorType(const String& type) {
     return true;
 }
 
+// Detection-function wrappers (anomaly/outlier/forecast/change) — these
+// compare a *deviation band* derived from the wrapped query against the
+// monitor's threshold, not the plotted metric value itself, so a threshold
+// value drawn as a literal horizontal line on the raw-metric chart would
+// misrepresent what it means. Shared by extractChartableQuery() (which
+// unwraps these to find the chartable inner query) and isRawMetricQuery()
+// (which uses the same list to decide whether thresholds are even
+// applicable to draw).
+static const char* const DETECTION_WRAPPERS[] = {
+    "anomalies(", "outliers(", "forecast(", "raw_forecast(", "change(", "pct_change(",
+};
+
+// True when `query` (the monitor's raw, unstripped query) is a plain
+// threshold comparison against a metric — i.e. NOT wrapped in one of
+// DETECTION_WRAPPERS — so options.thresholds values are literal points on
+// the same axis as the chart and safe to draw as reference lines.
+static bool isRawMetricQuery(const String& raw) {
+    String q = raw;
+    q.trim();
+    int firstParen = q.indexOf('(');
+    int closeColon = q.indexOf("):");
+    if (firstParen >= 0 && closeColon > firstParen) {
+        q = q.substring(closeColon + 2);
+        q.trim();
+    }
+    for (const char* w : DETECTION_WRAPPERS) {
+        if (q.startsWith(w)) return false;
+    }
+    return true;
+}
+
 // Strips a monitor's evaluation envelope down to a plain metrics-query
 // expression /api/v1/query will accept — see fetchMonitorChartSeries's doc
 // comment in datadog.h for why this is necessary at all.
@@ -837,10 +874,7 @@ static String extractChartableQuery(const String& raw) {
     // methods) — the chartable metric query is always its first argument;
     // everything after the first depth-0 comma is algorithm parameters
     // (e.g. 'agile', 2, direction=..., interval=60), not part of the query.
-    static const char* const WRAPPERS[] = {
-        "anomalies(", "outliers(", "forecast(", "raw_forecast(", "change(", "pct_change(",
-    };
-    for (const char* w : WRAPPERS) {
+    for (const char* w : DETECTION_WRAPPERS) {
         size_t wlen = strlen(w);
         if (q.length() > wlen && q.startsWith(w)) {
             int d = 0;
@@ -970,6 +1004,9 @@ bool fetchMonitorDetailAndChart(long monitorId) {
         r.id = detail.id;
         r.status = detail.status;
         r.muted = detail.muted;
+        r.criticalThreshold = detail.criticalThreshold;
+        r.warningThreshold = detail.warningThreshold;
+        r.thresholdsApplicable = isRawMetricQuery(detail.query);
         r.chartOk = fetchMonitorChartSeries(detail, r.chart, r.err);
     }
     g_lastMonitorDetailResult = r;
