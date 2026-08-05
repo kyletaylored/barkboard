@@ -1,0 +1,1130 @@
+#include "datadog.h"
+#include "config.h"
+#include "storage.h"
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+
+namespace dd {
+
+// Probe order per BARKBOARD_PLAN.md §2 — most-common-first so the typical
+// case (US1 or EU) resolves in one or two hops rather than the ~25s worst case.
+static const char* const SITE_HOSTS[] = {
+    "datadoghq.com", "datadoghq.eu", "us3.datadoghq.com", "us5.datadoghq.com",
+    "ap1.datadoghq.com", "ap2.datadoghq.com", "uk1.datadoghq.com",
+    "ddog-gov.com", "us2.ddog-gov.com",
+};
+static const int SITE_HOST_COUNT = sizeof(SITE_HOSTS) / sizeof(SITE_HOSTS[0]);
+
+// Declared up here (not next to fetchMyTeams() further down) so
+// bareTeamScope() below can read it — the auto-detected scope fallback.
+static std::vector<Team> g_lastMyTeams;
+const std::vector<Team>& lastMyTeams() { return g_lastMyTeams; }
+
+static String urlEncode(const String& s) {
+    String out; out.reserve(s.length() * 3);
+    const char* hex = "0123456789ABCDEF";
+    for (size_t i = 0; i < s.length(); ++i) {
+        uint8_t c = (uint8_t)s[i];
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out += (char)c;
+        } else {
+            out += '%';
+            out += hex[c >> 4];
+            out += hex[c & 0xF];
+        }
+    }
+    return out;
+}
+
+// storage::getTeamScope() is meant to be one bare value (e.g. "my-team"),
+// but the Settings field is free text — someone typing out of habit from
+// the old two-field days (or copy-pasting a "team:x"/"teams:x" fragment
+// from elsewhere) shouldn't end up double-prefixed ("teams:team:my-team",
+// which matches nothing). Strip either prefix before applying the correct
+// one for the screen.
+static String bareTeamScope() {
+    String team = storage::getTeamScope();
+    team.trim();
+    String lower = team; lower.toLowerCase();
+    if (lower.startsWith("teams:"))    team = team.substring(6);
+    else if (lower.startsWith("team:")) team = team.substring(5);
+    team.trim();
+    if (team.length()) return team;
+
+    // Manual field is blank — fall back to the auto-detected team from
+    // filter[me] (see netTask()'s doc comment in main.cpp for when this
+    // gets fetched). Only when exactly one team resolves: same reasoning
+    // as On-Call's needsTeamPick in fetchOnCallAll() — zero or multiple
+    // teams can't be disambiguated automatically, so this falls through to
+    // "no scope" (today's behavior) rather than guessing wrong.
+    if (g_lastMyTeams.size() == 1) return g_lastMyTeams[0].handle;
+    return "";
+}
+
+// These translate the bare value into each screen's own filter syntax —
+// monitors/SLOs key off the "team:x" tag convention, incidents key off a
+// custom field literally named "teams" (plural). "" (no scope configured)
+// passes through as "".
+static String monitorTeamScope() {
+    String team = bareTeamScope();
+    return team.length() ? ("team:" + team) : "";
+}
+static String incidentTeamScope() {
+    String team = bareTeamScope();
+    return team.length() ? ("teams:" + team) : "";
+}
+
+static String apiBase() {
+    String site = storage::getSite();
+    if (site.length() == 0) site = SITE_HOSTS[0];
+    return "https://api." + site;
+}
+
+bool isConfigured() { return storage::hasKeys() && storage::hasSite(); }
+
+// Retry up to twice on transient TLS/connect errors (-1, -5, -11) — same
+// backoff pattern as pagerduty.cpp's updateIncidentStatus, reused verbatim.
+//
+// Parses directly from the HTTPClient's stream rather than buffering the
+// whole response into a String first — buffering doubles peak memory (raw
+// text + parsed tree) which was enough to exhaust heap on a real org's
+// monitor-facets response ("json: NoMemory", followed shortly by unrelated-
+// looking LVGL crashes that were really just heap exhaustion surfacing
+// somewhere else). Pass `filter` to skip parsing fields the caller doesn't
+// use at all — see fetchMonitorCounts for why that matters more than it
+// sounds like it should: the facets response's tag/type breakdowns scale
+// with the whole org's monitor fleet, not with per_page.
+// buffered=true parses from a fully-buffered String instead of streaming
+// directly off http.getStream() — confirmed live this is necessary for
+// /api/v1/query specifically: Datadog serves that endpoint's response
+// chunked (Transfer-Encoding: chunked, no Content-Length — confirmed via
+// curl -D-), and ArduinoJson's stream parser choked on it ("json:
+// InvalidInput", reproducible on real hardware but never via curl/python,
+// which both dechunk transparently before your code ever sees the bytes).
+// HTTPClient::getString() dechunks correctly; getStream() being handed
+// straight to a 3rd-party Stream consumer over a chunked response is a
+// known-shaky combination on this platform. Only opt into this for
+// responses with a known-bounded size (a metric series' point count is
+// capped) — the facets-response memory blowup this function's streaming
+// design originally existed to avoid is still a real risk for anything
+// org-size-dependent.
+static bool httpGetJsonRetrying(const String& url, JsonDocument& doc, String& err,
+                                 const JsonDocument* filter = nullptr, bool buffered = false) {
+    // The URL already contains the exact query/filter that went out —
+    // logging it here (once, not per retry) covers every screen's fetch
+    // automatically, since every GET-based one goes through this same
+    // helper. No secrets in it: API/App keys are headers, never query params.
+    // 2 attempts, not 3, and shorter timeouts than before — confirmed live
+    // that a single stalled query (every attempt timing out on the same
+    // slow/complex metric aggregation) can chain 3x ~20s timeouts into a
+    // 70+ second stretch. That's not just a slow fetch: the core-split
+    // architecture (main.cpp) puts this call on its own core so LVGL/touch
+    // stay responsive regardless of how long it takes, but portal.cpp's web
+    // server (running on core 1) shares the ESP32's underlying TCP/IP stack
+    // with whatever this call is doing on core 0 — a long enough stall here
+    // can still stall portal::loop()'s handleClient(), which runs before
+    // updateMoodLed() in loop(), reading as a full freeze even though it
+    // isn't LVGL itself blocking. Shortening the worst case here doesn't
+    // fix that coupling, just shrinks how bad it can get until it does.
+    // Logged once per call (not per retry, that's already noisy enough) —
+    // the useHTTP10 fix for this endpoint's chunked-transfer freeze didn't
+    // actually resolve it on real hardware, so the next real capture needs
+    // to answer a different question: is this specifically the 3rd
+    // sequential HTTPS/TLS call in Monitor Detail's drill-in (detail ->
+    // events search -> chart) running into heap exhaustion/fragmentation
+    // from back-to-back mbedTLS sessions, not a chunked-encoding issue at
+    // all? Each TLS session's buffers are large relative to this device's
+    // total heap.
+    // getMaxAllocHeap(), not just getFreeHeap() — total free bytes can look
+    // perfectly healthy while still being too fragmented for the one/few
+    // large contiguous buffers mbedTLS's TLS session actually needs; this
+    // is the metric that would actually reveal that specific failure mode.
+    Serial.printf("[dd] GET %s (free heap: %u, largest block: %u)\n",
+                  url.c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        // The failure that triggered this retry is already logged immediately
+        // below (at the point it happened), not repeated here.
+        if (attempt > 0) delay(600);
+        err = "";
+
+        String apiKey = storage::getApiKey();
+        String appKey = storage::getAppKey();
+
+        WiFiClientSecure client;
+        client.setInsecure();
+        client.setHandshakeTimeout(10);
+        client.setTimeout(10000);
+
+        HTTPClient http;
+        http.setReuse(false);
+        http.setTimeout(10000);
+        http.setConnectTimeout(8000);
+        http.setUserAgent("barkboard/1.0");
+        // buffered==true marks the one endpoint (/api/v1/query) confirmed
+        // live to always respond with Transfer-Encoding: chunked, no
+        // Content-Length — a combination that's caused repeated real
+        // freezes on this ESP32 HTTPClient (both a truncated "IncompleteInput"
+        // parse on a large multi-series response, and, confirmed live this
+        // time with curl -D-, a full freeze on a TINY 7KB single-series
+        // response too — ruling out payload size as the cause and pointing
+        // at HTTPClient's chunked-decode path itself being flaky here).
+        // Also confirmed live: declaring HTTP/1.0 makes Datadog drop chunked
+        // encoding for this endpoint entirely (falls back to Connection:
+        // close instead) — sidesteps the flaky decode path rather than
+        // trying to fix it.
+        if (buffered) http.useHTTP10(true);
+
+        if (!http.begin(client, url)) { err = "http begin failed"; continue; }
+        http.addHeader("DD-API-KEY", apiKey);
+        http.addHeader("DD-APPLICATION-KEY", appKey);
+        http.addHeader("Accept", "application/json");
+        http.addHeader("Connection", "close");
+
+        int code = http.GET();
+        bool jsonFailed = false;
+        if (code == 200) {
+            DeserializationError je;
+            if (buffered) {
+                String body = http.getString();
+                je = filter
+                    ? deserializeJson(doc, body, DeserializationOption::Filter(*filter))
+                    : deserializeJson(doc, body);
+            } else {
+                je = filter
+                    ? deserializeJson(doc, http.getStream(), DeserializationOption::Filter(*filter))
+                    : deserializeJson(doc, http.getStream());
+            }
+            http.end();
+            if (!je) return true;
+            // Confirmed live this isn't confined to the chunked/buffered
+            // path — an IncompleteInput on plain streaming too (incidents/
+            // search), with no hang involved, just a one-off truncated read.
+            // Worth a retry like any other transient failure instead of
+            // giving up on the spot, which is what this used to do.
+            err = String("json: ") + je.c_str();
+            jsonFailed = true;
+        } else if (code <= 0) {
+            err = String("HTTP ") + code + " (" + HTTPClient::errorToString(code) + ")";
+            http.end();
+        } else {
+            String body = http.getString();
+            if (body.length() > 160) body = body.substring(0, 160) + "...";
+            err = "HTTP " + String(code);
+            if (body.length()) err += " — " + body;
+            http.end();
+        }
+        // Logged immediately, not deferred to the next retry's log line —
+        // on the last attempt there IS no next iteration, so this was the
+        // one real failure mode with zero serial output at all: a pure
+        // connect/handshake/read timeout (code<=0) on the final attempt.
+        Serial.printf("[dd] GET %s -> %s%s (attempt %d)\n",
+                      url.c_str(), err.c_str(), jsonFailed ? " (HTTP 200)" : "", attempt);
+
+        if (!jsonFailed && code != -1 && code != -5 && code != -11) break;   // permanent error, no retry
+    }
+    Serial.printf("[dd] GET %s -> giving up: %s\n", url.c_str(), err.c_str());
+    return false;
+}
+
+// Shared POST/PATCH helper — every mutation (mute/unmute, incident state,
+// case/incident create, Bits trigger) was duplicating this same connect/
+// header/send/error-format boilerplate. Deliberately NOT retried like
+// httpGetJsonRetrying() above: retrying a mutation on a transient error
+// risks silently doing it twice (double-muting is harmless, but double-
+// creating a case or declaring two incidents from one tap isn't).
+// outDoc is optional — pass nullptr for calls that don't need the response
+// body (mute/unmute/setIncidentState just check the status code).
+static bool httpMutateJson(const char* method, const String& url, const String& body,
+                            JsonDocument* outDoc, String& err, const JsonDocument* filter = nullptr) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // Covers every POST/PATCH call through this one helper — includes
+    // genuine mutations (mute, case/incident create, Bits trigger) as well
+    // as events/search, which is a read sent as POST since the query is too
+    // long/structured for a query string. No secrets in url/body: API/App
+    // keys are headers, never part of either.
+    Serial.printf("[dd] %s %s body=%s (free heap: %u)\n", method, url.c_str(), body.c_str(), ESP.getFreeHeap());
+
+    String apiKey = storage::getApiKey();
+    String appKey = storage::getAppKey();
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(20);
+    client.setTimeout(20000);
+    HTTPClient http;
+    http.setReuse(false);
+    http.setTimeout(20000);
+    http.setConnectTimeout(15000);
+    if (!http.begin(client, url)) { err = "http begin"; return false; }
+    http.addHeader("DD-API-KEY", apiKey);
+    http.addHeader("DD-APPLICATION-KEY", appKey);
+    http.addHeader("Content-Type", "application/json");
+
+    int code;
+    if (strcmp(method, "POST") == 0)      code = http.POST(body);
+    else if (strcmp(method, "PATCH") == 0) code = http.PATCH(body);
+    else { err = "unsupported method"; http.end(); return false; }
+
+    bool ok = (code >= 200 && code < 300);
+    if (ok && outDoc) {
+        DeserializationError je = filter
+            ? deserializeJson(*outDoc, http.getStream(), DeserializationOption::Filter(*filter))
+            : deserializeJson(*outDoc, http.getStream());
+        http.end();
+        if (je) {
+            err = String("json: ") + je.c_str();
+            Serial.printf("[dd] %s %s -> HTTP %d but %s\n", method, url.c_str(), code, err.c_str());
+            return false;
+        }
+        return true;
+    }
+    if (!ok) {
+        String resp = http.getString();
+        if (resp.length() > 200) resp = resp.substring(0, 200) + "...";
+        err = "HTTP " + String(code);
+        if (resp.length()) err += " — " + resp;
+    }
+    http.end();
+    return ok;
+}
+
+bool validateKeysAndDetectSite(const String& apiKey, const String& appKey,
+                                String& outSite, String& err, ProgressCb onProgress) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    for (int i = 0; i < SITE_HOST_COUNT; ++i) {
+        const char* host = SITE_HOSTS[i];
+        if (onProgress) onProgress(i + 1, SITE_HOST_COUNT, host);
+        Serial.printf("[dd] probing site %d/%d: %s\n", i + 1, SITE_HOST_COUNT, host);
+
+        WiFiClientSecure client;
+        client.setInsecure();
+        client.setHandshakeTimeout(4);
+        client.setTimeout(4000);
+
+        HTTPClient http;
+        http.setReuse(false);
+        http.setTimeout(4000);
+        http.setConnectTimeout(4000);
+        http.setUserAgent("barkboard/1.0");
+
+        String url = String("https://api.") + host + "/api/v2/validate_keys";
+        if (!http.begin(client, url)) { continue; }
+        http.addHeader("DD-API-KEY", apiKey);
+        http.addHeader("DD-APPLICATION-KEY", appKey);
+        http.addHeader("Accept", "application/json");
+        http.addHeader("Connection", "close");
+
+        int code = http.GET();
+        http.end();
+        Serial.printf("[dd]   -> HTTP %d\n", code);
+
+        if (code == 200) {
+            outSite = host;
+            storage::setSite(outSite);
+            return true;
+        }
+    }
+
+    err = "couldn't find a Datadog org with those keys — check for typos or a revoked key";
+    return false;
+}
+
+static MonitorCounts      g_lastCounts;
+static std::vector<Monitor> g_lastMonitors;
+static String             g_monitorFilter;   // "" = all
+
+const MonitorCounts& lastMonitorCounts() { return g_lastCounts; }
+const std::vector<Monitor>& lastMonitors() { return g_lastMonitors; }
+void setMonitorFilter(const String& f) { g_monitorFilter = f; }
+const String& getMonitorFilter() { return g_monitorFilter; }
+
+// See moodInputsSnapshot()'s doc comment in datadog.h — the one dd:: value
+// read continuously from core 1 outside the normal job-done discipline, so
+// it gets its own tiny lock instead of relying on the "read only after
+// done==true" convention every other cache here follows.
+static portMUX_TYPE g_moodMux = portMUX_INITIALIZER_UNLOCKED;
+static int  g_moodAlert = 0;
+static int  g_moodWarn = 0;
+static bool g_moodHasCritical = false;
+
+void moodInputsSnapshot(int& outAlertCount, int& outWarnCount, bool& outHasCriticalIncident) {
+    portENTER_CRITICAL(&g_moodMux);
+    outAlertCount = g_moodAlert;
+    outWarnCount = g_moodWarn;
+    outHasCriticalIncident = g_moodHasCritical;
+    portEXIT_CRITICAL(&g_moodMux);
+}
+
+bool fetchMonitorCounts(MonitorCounts& out) {
+    out.fetchOk = false;
+    out.error = "";
+    if (WiFi.status() != WL_CONNECTED) { out.error = "no WiFi"; return false; }
+
+    // per_page=1 keeps the *monitors* array in the response tiny, but the
+    // "counts" facets (status/type/tag breakdowns) summarize the entire
+    // matching set regardless of page size — on a large real org the
+    // tag facet alone (one entry per distinct tag value across every
+    // monitor) can be big enough to exhaust heap. Filter to counts.status
+    // only; nothing else here is ever read.
+    String url = apiBase() + "/api/v1/monitor/search?query=" + urlEncode(monitorTeamScope()) + "&per_page=1";
+    JsonDocument filter;
+    filter["counts"]["status"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, out.error, &filter)) {
+        out.lastFetchMs = millis();
+        g_lastCounts = out;
+        return false;
+    }
+
+    out.alert = out.warn = out.ok = out.noData = 0;
+    for (JsonObject bucket : doc["counts"]["status"].as<JsonArray>()) {
+        String name = bucket["name"] | "";
+        int count = bucket["count"] | 0;
+        if      (name.equalsIgnoreCase("Alert"))   out.alert = count;
+        else if (name.equalsIgnoreCase("Warn"))    out.warn = count;
+        else if (name.equalsIgnoreCase("OK"))      out.ok = count;
+        else if (name.equalsIgnoreCase("No Data")) out.noData = count;
+    }
+    out.fetchOk = true;
+    out.lastFetchMs = millis();
+    g_lastCounts = out;
+    portENTER_CRITICAL(&g_moodMux);
+    g_moodAlert = out.alert;
+    g_moodWarn = out.warn;
+    portEXIT_CRITICAL(&g_moodMux);
+    return true;
+}
+
+bool fetchMonitors(const String& statusFilter, std::vector<Monitor>& out, String& err, int limit) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String query;
+    String sf = statusFilter; sf.toLowerCase();
+    if (sf == "alert")        query = "status:alert";
+    else if (sf == "warn")    query = "status:warn";
+    else if (sf == "no data") query = "status:\"no data\"";
+    else if (sf == "ok")      query = "status:ok";
+    // else: "" / "all" — no status term narrows nothing beyond scope, server still caps via per_page.
+
+    String scope = monitorTeamScope();
+    if (scope.length()) query = query.length() ? (query + " " + scope) : scope;
+
+    String url = apiBase() + "/api/v1/monitor/search?query=" + urlEncode(query) +
+                 "&per_page=" + String(limit) + "&sort=status";
+    // Monitor objects carry a lot we never use — templated alert `message`
+    // bodies especially can run several KB each. Filtering to just what we
+    // read keeps a 14-item page cheap regardless of how verbose the org's
+    // monitors are.
+    JsonDocument filter;
+    JsonObject monFilter = filter["monitors"].add<JsonObject>();
+    monFilter["id"] = true;
+    monFilter["name"] = true;
+    monFilter["status"] = true;
+    monFilter["query"] = true;
+    monFilter["type"] = true;
+    monFilter["overall_state_modified"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    for (JsonObject m : doc["monitors"].as<JsonArray>()) {
+        Monitor mon;
+        mon.id              = m["id"]                     | 0L;
+        mon.name            = m["name"]                    | "";
+        mon.status          = m["status"]                  | "";
+        mon.query           = m["query"]                   | "";
+        mon.type            = m["type"]                    | "";
+        mon.lastTriggeredTs = m["overall_state_modified"]   | 0L;
+        out.push_back(mon);
+        if ((int)out.size() >= limit) break;   // belt-and-suspenders cap for the LVGL pool
+    }
+    g_lastMonitors = out;
+    return true;
+}
+
+bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String url = apiBase() + "/api/v1/monitor/" + String(monitorId);
+    // Single-monitor GET includes the full templated alert `message` body
+    // and other fields we never read — filter it out.
+    JsonDocument filter;
+    filter["id"] = true;
+    filter["name"] = true;
+    filter["overall_state"] = true;
+    filter["query"] = true;
+    filter["type"] = true;
+    filter["tags"] = true;
+    filter["options"]["silenced"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    out.id     = doc["id"]             | monitorId;
+    out.name   = doc["name"]           | "";
+    // This endpoint names the field "overall_state", not monitor/search's
+    // "status" — same values, confirmed against a live monitor.
+    out.status = doc["overall_state"]  | "";
+    out.query  = doc["query"]          | "";
+    out.type   = doc["type"]           | "";
+    out.tags.clear();
+    for (JsonVariant t : doc["tags"].as<JsonArray>()) out.tags.push_back(t.as<String>());
+    // options.silenced is a map of scope -> mute-end-epoch (or null =
+    // indefinite); any entries at all means the monitor is currently muted
+    // somewhere. Not verified live (no muted monitor in the test org at the
+    // time this was written) — best-effort against the documented shape.
+    out.muted = doc["options"]["silenced"].as<JsonObject>().size() > 0;
+    return true;
+}
+
+bool muteMonitor(long monitorId, uint32_t untilEpochSec, String& err) {
+    String url = apiBase() + "/api/v1/monitor/" + String(monitorId) + "/mute";
+    String body = String("{\"scope\":\"*\",\"end\":") + String(untilEpochSec) + "}";
+    return httpMutateJson("POST", url, body, nullptr, err);
+}
+
+bool unmuteMonitor(long monitorId, String& err) {
+    String url = apiBase() + "/api/v1/monitor/" + String(monitorId) + "/unmute";
+    return httpMutateJson("POST", url, "{\"scope\":\"*\"}", nullptr, err);
+}
+
+static std::vector<Incident> g_lastIncidents;
+const std::vector<Incident>& lastIncidents() { return g_lastIncidents; }
+
+bool fetchIncidents(std::vector<Incident>& out, String& err, int limit) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // GET /api/v2/incidents with filter[state]=active silently ignores that
+    // parameter — confirmed live: an obviously-invalid state value returned
+    // the exact same results as "active". The dedicated search endpoint
+    // actually filters (confirmed live: query=state:resolved vs state:active
+    // correctly included/excluded a known resolved incident) and is simpler
+    // besides — commander comes back inline, no separate include=users +
+    // manual id lookup needed. Scope query (Settings page, e.g. "teams:xyz" —
+    // incidents' team-association field is a custom field literally named
+    // "teams", plural, unlike monitors' "team:" tag) ANDs on as a
+    // space-separated term.
+    String query = "state:active";
+    String scope = incidentTeamScope();
+    if (scope.length()) query += " " + scope;
+
+    String url = apiBase() + "/api/v2/incidents/search?query=" + urlEncode(query) +
+                 "&page%5Bsize%5D=" + String(limit);
+    // Incident objects carry a lot of fields we never read (customer_impact_*,
+    // time_to_*, user_defined_fields, etc.) — filter down to just what's used.
+    JsonDocument filter;
+    JsonObject incFilter = filter["data"]["attributes"]["incidents"].add<JsonObject>();
+    incFilter["data"]["id"] = true;
+    incFilter["data"]["attributes"]["title"] = true;
+    incFilter["data"]["attributes"]["severity"] = true;
+    incFilter["data"]["attributes"]["state"] = true;
+    incFilter["data"]["attributes"]["created"] = true;
+    incFilter["data"]["attributes"]["commander"]["data"]["attributes"]["name"] = true;
+    incFilter["data"]["attributes"]["fields"]["services"]["value"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    for (JsonObject wrapper : doc["data"]["attributes"]["incidents"].as<JsonArray>()) {
+        JsonObject item = wrapper["data"];
+        JsonObject a = item["attributes"];
+        Incident inc;
+        inc.id        = item["id"]           | "";
+        inc.title     = a["title"]           | "";
+        inc.severity  = a["severity"]        | "UNKNOWN";
+        inc.state     = a["state"]           | "";
+        inc.createdAt = a["created"]         | "";
+        inc.commander = a["commander"]["data"]["attributes"]["name"] | "";
+        JsonArray svcs = a["fields"]["services"]["value"].as<JsonArray>();
+        for (JsonVariant s : svcs) inc.services.push_back(s.as<String>());
+        out.push_back(inc);
+        if ((int)out.size() >= limit) break;
+    }
+    g_lastIncidents = out;
+    bool hasCritical = false;
+    for (const Incident& inc : out) {
+        if (inc.severity == "SEV-1" || inc.severity == "SEV-2") { hasCritical = true; break; }
+    }
+    portENTER_CRITICAL(&g_moodMux);
+    g_moodHasCritical = hasCritical;
+    portEXIT_CRITICAL(&g_moodMux);
+    return true;
+}
+
+String nextIncidentState(const String& current) {
+    String c = current; c.toLowerCase();
+    if (c == "active") return "stable";
+    if (c == "stable") return "resolved";
+    return "active";   // resolved -> active, or any unrecognized state -> active
+}
+
+bool setIncidentState(const String& incidentId, const String& newState, String& err) {
+    String url = apiBase() + "/api/v2/incidents/" + incidentId;
+    String body = String("{\"data\":{\"id\":\"") + incidentId +
+                  "\",\"type\":\"incidents\",\"attributes\":{\"fields\":{\"state\":{\"type\":\"dropdown\",\"value\":\"" +
+                  newState + "\"}}}}}";
+    return httpMutateJson("PATCH", url, body, nullptr, err);
+}
+
+static std::vector<SloSummary> g_lastSlos;
+const std::vector<SloSummary>& lastSlos() { return g_lastSlos; }
+
+bool fetchSlos(std::vector<SloSummary>& out, String& err, int limit) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // v1/slo's "query" param is a name/description text search, NOT a tag
+    // filter — confirmed live that query=env:prod matched zero SLOs despite
+    // both test SLOs carrying that tag. "tags_query" is the real tag filter
+    // (confirmed live: tags_query=platform:github correctly narrowed to the
+    // one matching SLO out of two).
+    String url = apiBase() + "/api/v1/slo?limit=" + String(limit);
+    String scope = monitorTeamScope();   // same "team:x" tag convention as monitors
+    if (scope.length()) url += "&tags_query=" + urlEncode(scope);
+    // SLO objects also carry tags/monitor_ids/sli_specification/creator etc.
+    // we never read — same filtering discipline as the other list fetchers.
+    JsonDocument filter;
+    JsonObject sloFilter = filter["data"].add<JsonObject>();
+    sloFilter["id"] = true;
+    sloFilter["name"] = true;
+    sloFilter["type"] = true;
+    sloFilter["target_threshold"] = true;
+    sloFilter["timeframe"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    for (JsonObject s : doc["data"].as<JsonArray>()) {
+        SloSummary slo;
+        slo.id        = s["id"]               | "";
+        slo.name      = s["name"]             | "";
+        slo.type      = s["type"]             | "";
+        slo.target    = s["target_threshold"] | 0.0;
+        slo.timeframe = s["timeframe"]        | "";
+        out.push_back(slo);
+        if ((int)out.size() >= limit) break;
+    }
+    g_lastSlos = out;
+    return true;
+}
+
+bool fetchSloStatus(const String& sloId, SloStatus& out, String& err) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // v2/status returns a compact current-state summary regardless of the
+    // window size — much lighter than v1/history's full point-series
+    // (confirmed live: a 5-minute window still returns just {sli, state,
+    // error_budget_remaining}, not a history array).
+    uint32_t now = (uint32_t)time(nullptr);
+    uint32_t from = (now > 3600) ? now - 3600 : 0;
+    String url = apiBase() + "/api/v2/slo/" + sloId + "/status?from_ts=" + String(from) + "&to_ts=" + String(now);
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err)) return false;
+
+    JsonObject a = doc["data"]["attributes"];
+    out.sliValue             = a["sli"]                     | 0.0;
+    out.state                = a["state"]                   | "";
+    out.errorBudgetRemaining = a["error_budget_remaining"]   | 0.0;
+    // target isn't in this response — caller fills it from fetchSlos()'s SloSummary.
+    return true;
+}
+
+bool fetchMyTeams(std::vector<Team>& out, String& err) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // filter[me]=true — confirmed live this resolves to the specific user
+    // who created the API/App key pair being used, not a per-request/
+    // per-session identity (there is none for a device authenticating with
+    // static keys) — see datadog.h's doc comment on why this is a separate
+    // concept from storage::getTeamScope().
+    String url = apiBase() + "/api/v2/team?filter%5Bme%5D=true&page%5Bsize%5D=20";
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err)) return false;
+
+    for (JsonObject item : doc["data"].as<JsonArray>()) {
+        Team t;
+        t.id     = item["id"]                   | "";
+        t.name   = item["attributes"]["name"]   | "";
+        t.handle = item["attributes"]["handle"] | "";
+        out.push_back(t);
+    }
+    g_lastMyTeams = out;
+    return true;
+}
+
+// `included` is small and bounded (a handful of users/escalation steps per
+// team) — a linear scan per lookup is simpler than building a hash map for
+// something this size.
+static JsonObject findIncluded(JsonArray included, const String& id, const char* type) {
+    for (JsonObject item : included) {
+        String itemId = item["id"] | "";
+        String itemType = item["type"] | "";
+        if (itemId == id && itemType == type) return item;
+    }
+    return JsonObject();
+}
+
+static String resolveOnCallUserName(JsonArray included, const String& userId) {
+    JsonObject u = findIncluded(included, userId, "users");
+    if (u.isNull()) return userId;   // fall back to the bare id rather than showing nothing
+    String name = u["attributes"]["name"] | "";
+    if (name.length()) return name;
+    String email = u["attributes"]["email"] | "";
+    return email.length() ? email : userId;
+}
+
+bool fetchOnCallForTeamId(const String& teamId, std::vector<OnCallEntry>& out, String& err) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // See datadog.h's doc comment — confirmed live against a team with a
+    // real active rotation. `include` is required or `included` (where
+    // names actually live) never comes back at all.
+    String url = apiBase() + "/api/v2/on-call/teams/" + teamId +
+                 "/on-call?include=responders,escalations,escalations.responders";
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err)) return false;
+
+    JsonArray included = doc["included"].as<JsonArray>();
+
+    for (JsonObject ref : doc["data"]["relationships"]["responders"]["data"].as<JsonArray>()) {
+        OnCallEntry e;
+        e.user = resolveOnCallUserName(included, ref["id"] | "");
+        e.schedule = "Current";
+        e.escalationLevel = 0;
+        out.push_back(e);
+    }
+
+    int stepIdx = 0;
+    for (JsonObject stepRef : doc["data"]["relationships"]["escalations"]["data"].as<JsonArray>()) {
+        stepIdx++;
+        String stepId = stepRef["id"] | "";
+        JsonObject step = findIncluded(included, stepId, "escalation_policy_steps");
+        for (JsonObject userRef : step["relationships"]["responders"]["data"].as<JsonArray>()) {
+            OnCallEntry e;
+            e.user = resolveOnCallUserName(included, userRef["id"] | "");
+            e.schedule = "Escalation step " + String(stepIdx);
+            e.escalationLevel = stepIdx;
+            out.push_back(e);
+        }
+    }
+    return true;
+}
+
+static OnCallResult g_lastOnCallResult;
+const OnCallResult& lastOnCallResult() { return g_lastOnCallResult; }
+
+bool fetchOnCallAll() {
+    OnCallResult r;
+    String teamId = storage::getOnCallTeamId();
+
+    if (teamId.length() == 0) {
+        // Not yet resolved — auto-detect via filter[me]. Exactly one team:
+        // persist it and proceed with zero user interaction. Zero or
+        // multiple: can't guess, cache the list for the web picker instead.
+        std::vector<Team> myTeams;
+        String terr;
+        fetchMyTeams(myTeams, terr);
+        if (myTeams.size() == 1) {
+            teamId = myTeams[0].id;
+            storage::setOnCallTeamId(teamId);
+        } else {
+            r.hasTeams = !myTeams.empty();
+            r.needsTeamPick = myTeams.size() > 1;
+            g_lastOnCallResult = r;
+            return true;
+        }
+    }
+
+    r.hasTeams = true;
+    String oerr;
+    fetchOnCallForTeamId(teamId, r.entries, oerr);
+    g_lastOnCallResult = r;
+    return true;
+}
+
+bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEpochSec,
+                        std::vector<MetricPoint>& out, String& err) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String url = apiBase() + "/api/v1/query?query=" + urlEncode(query) +
+                 "&from=" + String(fromEpochSec) + "&to=" + String(toEpochSec);
+    JsonDocument doc;
+    // buffered=true — this endpoint responds chunked (see
+    // httpGetJsonRetrying's doc comment); a point count capped by the
+    // window/interval keeps the buffered size bounded and safe.
+    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
+
+    JsonArray series = doc["series"].as<JsonArray>();
+    if (series.size() == 0) {
+        // A rejected query still comes back HTTP 200 with status:"error" and
+        // a human-readable parser message (confirmed live) — surface that
+        // instead of a bare "no series" whenever it's present.
+        String apiErr = doc["error"] | "";
+        err = apiErr.length() ? apiErr : "no series";
+        return false;
+    }
+    for (JsonVariant pt : series[0]["pointlist"].as<JsonArray>()) {
+        // Confirmed live: gaps in the data (nothing reported that interval)
+        // come back as a real JSON null, not a missing point — as<double>()
+        // on a null silently gives 0.0, which would draw a fake dip to zero
+        // on the chart instead of just not having a point there. Skip it.
+        if (pt[1].isNull()) continue;
+        MetricPoint p;
+        p.tsSec = (uint32_t)(pt[0].as<double>() / 1000.0);   // pointlist ts is ms
+        p.value = pt[1].as<double>();
+        out.push_back(p);
+    }
+    return true;
+}
+
+// Monitor types with no metrics query at all — a different query language
+// entirely (logs/synthetics results/APM spans/etc.), not just a differently-
+// shaped one. Confirmed live for "log alert"/"synthetics alert" in this org
+// (the former's logs() query and the latter's literal "no_query" both come
+// back as a parser error from /api/v1/query); the rest are documented types
+// with the same fundamental mismatch, best-effort since this org doesn't
+// have one of each to test against.
+static bool isChartableMonitorType(const String& type) {
+    static const char* const NOT_CHARTABLE[] = {
+        "log alert", "synthetics alert", "event alert", "event-v2 alert",
+        "process alert", "service check", "trace-analytics alert",
+        "rum alert", "audit alert", "error-tracking alert", "composite",
+        "ci-pipelines alert", "ci-tests alert",
+    };
+    String t = type; t.toLowerCase();
+    for (const char* nc : NOT_CHARTABLE) if (t == nc) return false;
+    return true;
+}
+
+// Strips a monitor's evaluation envelope down to a plain metrics-query
+// expression /api/v1/query will accept — see fetchMonitorChartSeries's doc
+// comment in datadog.h for why this is necessary at all.
+static String extractChartableQuery(const String& raw) {
+    String q = raw;
+    q.trim();
+
+    // Drop the leading "<time_aggr>(<window>):" prefix, e.g. "avg(last_5m):".
+    int firstParen = q.indexOf('(');
+    int closeColon = q.indexOf("):");
+    if (firstParen >= 0 && closeColon > firstParen) {
+        q = q.substring(closeColon + 2);
+        q.trim();
+    }
+
+    // Drop the trailing " <comparison> <threshold>" — scan for a depth-0
+    // (outside any (), {}) comparison operator; everything from there on is
+    // the alert threshold, not part of the query.
+    int depth = 0;
+    int cmpAt = -1;
+    for (int i = 0; i < (int)q.length(); ++i) {
+        char c = q[i];
+        if (c == '(' || c == '{') depth++;
+        else if (c == ')' || c == '}') depth--;
+        else if (depth == 0 && (c == '>' || c == '<')) cmpAt = i;
+        else if (depth == 0 && c == '=' && i > 0 && (q[i - 1] == '=' || q[i - 1] == '!')) cmpAt = i - 1;
+    }
+    if (cmpAt > 0) {
+        q = q.substring(0, cmpAt);
+        q.trim();
+    }
+
+    // Detection-function wrapper (anomaly/outlier/forecast detection
+    // methods) — the chartable metric query is always its first argument;
+    // everything after the first depth-0 comma is algorithm parameters
+    // (e.g. 'agile', 2, direction=..., interval=60), not part of the query.
+    static const char* const WRAPPERS[] = {
+        "anomalies(", "outliers(", "forecast(", "raw_forecast(", "change(", "pct_change(",
+    };
+    for (const char* w : WRAPPERS) {
+        size_t wlen = strlen(w);
+        if (q.length() > wlen && q.startsWith(w)) {
+            int d = 0;
+            int argEnd = -1;
+            for (int i = (int)wlen; i < (int)q.length(); ++i) {
+                char c = q[i];
+                if (c == '(' || c == '{') d++;
+                else if (c == ')' || c == '}') {
+                    if (d == 0) { argEnd = i; break; }
+                    d--;
+                } else if (c == ',' && d == 0) {
+                    argEnd = i;
+                    break;
+                }
+            }
+            if (argEnd > (int)wlen) {
+                q = q.substring(wlen, argEnd);
+                q.trim();
+            }
+            break;
+        }
+    }
+
+    return q;
+}
+
+// Forward declaration — defined further down, but fetchMonitorChartSeries()
+// needs it too now (originally only triggerBitsInvestigation() did).
+static bool fetchLatestMonitorAlertEvent(long monitorId, String& outEventId, long long& outEventTsMs,
+                                          std::vector<String>& outGroups, String& err);
+
+// Merges monitor_groups (e.g. "service:checkout") into the query's first
+// "{...}" scope filter, e.g. "avg:foo{env:prod} by {service}" becomes
+// "avg:foo{env:prod,service:checkout} by {service}". Confirmed live this is
+// necessary, not cosmetic: a "by {tag}" query returns one series per
+// distinct tag value (46 of them, for one real monitor tested against) —
+// without this, fetchMetricSeries() has no way to know which of those 46 is
+// the one that actually alerted, and just took whichever Datadog listed
+// first (an arbitrary, usually-wrong series). Leaves the query unchanged if
+// it has no "{...}" to merge into.
+static String scopeQueryToGroups(const String& query, const std::vector<String>& groups) {
+    if (groups.empty()) return query;
+    int open = query.indexOf('{');
+    int close = (open >= 0) ? query.indexOf('}', open) : -1;
+    if (open < 0 || close < 0) return query;
+
+    String groupFilter;
+    for (size_t i = 0; i < groups.size(); ++i) {
+        if (i) groupFilter += ",";
+        groupFilter += groups[i];
+    }
+    String existing = query.substring(open + 1, close);
+    String merged = existing.length() ? (existing + "," + groupFilter) : groupFilter;
+    return query.substring(0, open + 1) + merged + query.substring(close);
+}
+
+bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+    out.clear();
+    if (!isChartableMonitorType(monitor.type)) {
+        err = monitor.type.length()
+                  ? ("\"" + monitor.type + "\" monitors don't use a metrics query")
+                  : "this monitor type doesn't use a metrics query";
+        return false;
+    }
+
+    // Anchor the window on the monitor's most recent alert event instead of
+    // "now" — confirmed live this matters: a monitor that's already
+    // recovered shows a flat, uneventful "last 1h from now" window, while
+    // anchoring on when it actually fired shows the real spike. Falls back
+    // to a live "now" window if there's no recent event (never fired, or
+    // events lookup failed) — same behavior as before this existed.
+    String eventId; long long eventTsMs = 0; std::vector<String> groups; String eventErr;
+    uint32_t to, from;
+    if (fetchLatestMonitorAlertEvent(monitor.id, eventId, eventTsMs, groups, eventErr) && eventTsMs > 0) {
+        to = (uint32_t)(eventTsMs / 1000);
+        from = (to > 3600) ? to - 3600 : 0;
+        Serial.printf("[dd] chart window: anchored on alert event (id=%s, groups=%d) from=%u to=%u\n",
+                      eventId.c_str(), (int)groups.size(), from, to);
+    } else {
+        to = (uint32_t)time(nullptr);
+        from = (to > 3600) ? to - 3600 : 0;
+        Serial.printf("[dd] chart window: no recent event (%s) — live 'now' window from=%u to=%u\n",
+                      eventErr.c_str(), from, to);
+    }
+
+    String q = extractChartableQuery(monitor.query);
+    if (!groups.empty()) {
+        q = scopeQueryToGroups(q, groups);
+    } else {
+        int byAt = q.indexOf(" by {");
+        if (byAt >= 0) {
+            // No recent alert event to narrow the "by {tag}" grouping to a
+            // single series (scopeQueryToGroups needs monitor_groups for
+            // that, which only comes from an event) — confirmed live this is
+            // a real failure mode, not just a correctness nit: an unscoped
+            // "by {tag}" query fans out one series per distinct tag value
+            // (45 services, in one real case tested against), and
+            // fetchMetricSeries() only ever reads series[0] anyway.
+            // Buffering every other series just to discard them produced a
+            // truncated read ("HTTP 200 but json: IncompleteInput") on real
+            // hardware. Tried wrapping in top(query, 1, ...) first — confirmed
+            // live via curl that /api/v1/query returns a flat "Internal
+            // error" for top() regardless of query shape, so that's not
+            // usable. Dropping the "by {...}" clause entirely instead:
+            // Datadog then returns exactly one series (the aggregate across
+            // the whole scope) — confirmed live at ~7KB for the same query
+            // that was 45 series/~200KB grouped. Less specific than picking
+            // the one alerting group, but reliably small and always exactly
+            // one series regardless of how many groups exist in the org.
+            int closeBrace = q.indexOf('}', byAt);
+            if (closeBrace >= 0) q = q.substring(0, byAt) + q.substring(closeBrace + 1);
+        }
+    }
+    Serial.printf("[dd] monitor %ld raw query: %s\n", monitor.id, monitor.query.c_str());
+    Serial.printf("[dd] monitor %ld chart query: %s\n", monitor.id, q.c_str());
+    return fetchMetricSeries(q, from, to, out, err);
+}
+
+static MonitorDetailResult g_lastMonitorDetailResult;
+const MonitorDetailResult& lastMonitorDetailResult() { return g_lastMonitorDetailResult; }
+
+bool fetchMonitorDetailAndChart(long monitorId) {
+    MonitorDetailResult r;
+    Monitor detail;
+    r.detailOk = fetchMonitorDetail(monitorId, detail, r.err);
+    if (r.detailOk) {
+        r.id = detail.id;
+        r.status = detail.status;
+        r.muted = detail.muted;
+        r.chartOk = fetchMonitorChartSeries(detail, r.chart, r.err);
+    }
+    g_lastMonitorDetailResult = r;
+    return r.detailOk;
+}
+
+// Titles built from monitor names need escaping — monitor names are
+// free text (org-defined) and can contain '"' or '\', which would
+// otherwise break the JSON bodies below.
+static String jsonEscape(const String& s) {
+    String out; out.reserve(s.length() + 8);
+    for (size_t i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if (c == '\n') out += "\\n";
+        else out += c;
+    }
+    return out;
+}
+
+bool fetchCaseProjects(std::vector<CaseProject>& out, String& err) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String url = apiBase() + "/api/v2/cases/projects";
+    JsonDocument filter;
+    JsonObject pf = filter["data"].add<JsonObject>();
+    pf["id"] = true;
+    pf["attributes"]["key"] = true;
+    pf["attributes"]["name"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    for (JsonObject p : doc["data"].as<JsonArray>()) {
+        CaseProject cp;
+        cp.id   = p["id"]                | "";
+        cp.key  = p["attributes"]["key"]  | "";
+        cp.name = p["attributes"]["name"] | "";
+        out.push_back(cp);
+    }
+    return true;
+}
+
+// Confirmed live via GET /api/v2/cases/types — this ID's all-zeros-but-the-
+// last-digit shape looks like a Datadog-wide constant rather than something
+// generated per org, but that's an inference, not something the docs state
+// outright.
+static const char* const CASE_TYPE_STANDARD = "00000000-0000-0000-0000-000000000001";
+
+bool createCase(const String& title, const String& projectId, String& outCaseKey, String& err) {
+    String url = apiBase() + "/api/v2/cases";
+    String body = String("{\"data\":{\"type\":\"case\",\"attributes\":{\"title\":\"") +
+                  jsonEscape(title) + "\",\"priority\":\"P3\",\"type_id\":\"" + CASE_TYPE_STANDARD +
+                  "\"},\"relationships\":{\"project\":{\"data\":{\"type\":\"project\",\"id\":\"" +
+                  projectId + "\"}}}}}";
+    JsonDocument doc;
+    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    outCaseKey = doc["data"]["attributes"]["key"] | "";
+    return true;
+}
+
+bool createIncident(const String& title, String& outIncidentId, String& err) {
+    String url = apiBase() + "/api/v2/incidents";
+    String body = String("{\"data\":{\"type\":\"incidents\",\"attributes\":{\"title\":\"") +
+                  jsonEscape(title) + "\"}}}";
+    JsonDocument doc;
+    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    outIncidentId = doc["data"]["id"] | "";
+    return true;
+}
+
+// Finds the monitor's most recent alert-transition event — confirmed live
+// that "@monitor.id:<id>" (not "monitor_id:<id>", which silently matched
+// nothing) is the real facet syntax for this endpoint, and that the event's
+// evt.id / attributes.timestamp fields are exactly the event_id/event_ts
+// Bits AI's trigger endpoint wants (attributes.timestamp is already epoch
+// *milliseconds*, matching the trigger endpoint's documented unit — don't
+// divide by 1000, that would be seconds and silently wrong).
+// outGroups is the monitor_groups this specific alert fired for (e.g.
+// "service:checkout") — confirmed live this matters: a "by {tag}" monitor's
+// query returns one series per distinct tag value (dozens, for a busy org),
+// and without this there's no way to tell which one actually alerted.
+static bool fetchLatestMonitorAlertEvent(long monitorId, String& outEventId, long long& outEventTsMs,
+                                          std::vector<String>& outGroups, String& err) {
+    outGroups.clear();
+    String query = "source:alert @monitor.id:" + String(monitorId);
+    String url = apiBase() + "/api/v2/events/search";
+    String body = String("{\"filter\":{\"query\":\"") + query +
+                  "\",\"from\":\"now-7d\",\"to\":\"now\"},\"sort\":\"-timestamp\",\"page\":{\"limit\":1}}";
+    // The full event body is a few KB (message text, tags, monitor options,
+    // etc.) — filter down to just the three fields actually read below.
+    JsonDocument filter;
+    JsonObject itemFilter = filter["data"].add<JsonObject>();
+    itemFilter["attributes"]["attributes"]["evt"]["id"] = true;
+    itemFilter["attributes"]["attributes"]["timestamp"] = true;
+    itemFilter["attributes"]["attributes"]["monitor_groups"] = true;
+    JsonDocument doc;
+    if (!httpMutateJson("POST", url, body, &doc, err, &filter)) return false;
+
+    JsonArray data = doc["data"].as<JsonArray>();
+    if (data.size() == 0) { err = "no recent alert event found for this monitor"; return false; }
+    JsonObject a = data[0]["attributes"]["attributes"];
+    outEventId = a["evt"]["id"] | "";
+    outEventTsMs = a["timestamp"] | 0LL;
+    for (JsonVariant g : a["monitor_groups"].as<JsonArray>()) outGroups.push_back(g.as<String>());
+    if (outEventId.length() == 0 || outEventTsMs == 0) { err = "event missing id/timestamp"; return false; }
+    return true;
+}
+
+bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String& err) {
+    String eventId;
+    long long eventTsMs = 0;
+    std::vector<String> groups;   // unused here — Bits only needs id/ts, not the group
+    if (!fetchLatestMonitorAlertEvent(monitorId, eventId, eventTsMs, groups, err)) return false;
+
+    String url = apiBase() + "/api/v2/bits-ai/investigations";
+    String body = String("{\"data\":{\"type\":\"trigger_investigation_request\",\"attributes\":{\"trigger\":{"
+                  "\"type\":\"monitor_alert_trigger\",\"monitor_alert_trigger\":{\"monitor_id\":") +
+                  String(monitorId) + ",\"event_id\":\"" + eventId + "\",\"event_ts\":" +
+                  String(eventTsMs) + "}}}}}";
+    JsonDocument doc;
+    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    outInvestigationId = doc["data"]["attributes"]["investigation_id"] | "";
+    return true;
+}
+
+bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
+                                         std::vector<BitsInvestigation>& out, String& err) {
+    out.clear();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    JsonDocument filter;
+    JsonObject bf = filter["data"].add<JsonObject>();
+    bf["id"] = true;
+    bf["attributes"]["title"] = true;
+    bf["attributes"]["status"] = true;
+
+    for (long id : monitorIds) {
+        String url = apiBase() + "/api/v2/bits-ai/investigations?filter%5Bmonitor_id%5D=" +
+                     String(id) + "&page%5Blimit%5D=5";
+        JsonDocument doc;
+        String perErr;
+        // Best-effort per monitor — one monitor's fetch failing shouldn't
+        // blank the whole screen when the others succeeded.
+        if (!httpGetJsonRetrying(url, doc, perErr, &filter)) continue;
+        for (JsonObject item : doc["data"].as<JsonArray>()) {
+            BitsInvestigation inv;
+            inv.id     = item["id"]                  | "";
+            inv.title  = item["attributes"]["title"]  | "";
+            inv.status = item["attributes"]["status"] | "";
+            out.push_back(inv);
+            if ((int)out.size() >= 14) return true;   // same LVGL-pool-protecting cap as other lists
+        }
+    }
+    return true;
+}
+
+}

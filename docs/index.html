@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BarkBoard — flash it in your browser</title>
+<meta name="description" content="Flash BarkBoard, a Datadog dashboard for the ESP32 Cheap Yellow Display, straight from Chrome or Edge — no toolchain required.">
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root{
+    --bg:#0B0B10;
+    --surface:#16151C;
+    --border:#26242E;
+    --ink:#F2F0F5;
+    --ink-muted:#B5B2C0;
+    --purple:#632CA6;
+    --purple-bg:#8000FF;
+    --ok:#3FB950;
+    --warn:#F2C94C;
+    --alert:#F0506E;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(ellipse at top, #1a0e2a, var(--bg));
+    color:var(--ink);
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:48px 20px 64px}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
+  .brand span{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{
+    font-weight:800;
+    font-size:clamp(32px,6vw,48px);
+    letter-spacing:-0.5px;
+    margin:0 0 8px;
+    background:linear-gradient(180deg,#fff, #cbb8ec);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+  h1 em{
+    font-style:normal;
+    background:linear-gradient(90deg,var(--purple-bg),#b57bff);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+  p.lead{color:var(--ink-muted);font-size:16px;line-height:1.6;max-width:60ch;margin:0 0 32px}
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:28px;
+    margin-bottom:24px;
+  }
+  .flash-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  esp-web-install-button{
+    --esp-tools-button-color: #fff;
+    --esp-tools-button-text-color: #fff;
+  }
+  esp-web-install-button button{
+    appearance:none;
+    border:0;
+    background:linear-gradient(180deg,var(--purple-bg),var(--purple));
+    color:#fff;
+    font-weight:800;
+    font-size:16px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    padding:16px 28px;
+    border-radius:12px;
+    cursor:pointer;
+    box-shadow:0 8px 24px rgba(128,0,255,.35);
+  }
+  esp-web-install-button button:hover{filter:brightness(1.08)}
+  esp-web-install-button[install-unsupported] + .unsupported-note{display:block}
+  .unsupported-note{
+    display:none;
+    margin-top:14px;
+    padding:12px 14px;
+    border-radius:10px;
+    background:#3a1620;
+    color:#ffb6bb;
+    border:1px solid #5a1d2a;
+    font-size:14px;
+  }
+  .checklist{list-style:none;margin:0;padding:0;display:grid;gap:10px;color:var(--ink-muted);font-size:14px}
+  .checklist li{display:flex;gap:10px;align-items:flex-start;line-height:1.5}
+  .checklist li::before{content:"✓";color:var(--ok);font-weight:800;flex:0 0 auto}
+  h2{font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 16px}
+  .steps{margin:0;padding:0;list-style:none;display:grid;gap:14px}
+  .steps li{display:flex;gap:14px;align-items:flex-start}
+  .steps .n{
+    flex:0 0 auto;width:26px;height:26px;border-radius:50%;
+    background:var(--border);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:800;
+  }
+  .steps .t{color:var(--ink);font-size:15px;line-height:1.6}
+  .steps .t b{color:#fff}
+  .gotchas{border-color:#3a2a10;background:#1c160c}
+  .gotchas h2{color:var(--warn)}
+  .gotchas li::before{content:"⚠";color:var(--warn)}
+  footer{color:var(--ink-muted);font-size:13px;line-height:1.7;margin-top:36px}
+  footer a{color:#cbb8ec}
+  a{color:#cbb8ec;text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{
+    background:#0a0a0f;border:1px solid var(--border);border-radius:6px;
+    padding:1px 6px;font-size:13px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot"></span><span>BarkBoard</span></div>
+  <h1>Flash your <em>Cheap Yellow Display</em><br>into a Datadog dashboard.</h1>
+  <p class="lead">
+    BarkBoard turns a $10 ESP32-2432S028R "CYD" touchscreen board into a
+    always-on Datadog dashboard — monitors, incidents, on-call, and SLOs,
+    glanceable from across the room. It's modeled on
+    <a href="https://github.com/justynroberts/pagerduty-cyd" target="_blank" rel="noopener">justynroberts/pagerduty-cyd</a>,
+    reworked to talk to the Datadog API instead of PagerDuty's.
+  </p>
+
+  <div class="card">
+    <h2>Connect &amp; flash</h2>
+    <div class="flash-row">
+      <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+      <span style="color:var(--ink-muted);font-size:14px">Plug in the board with a USB-C cable, click the button, pick the serial port.</span>
+    </div>
+    <p class="unsupported-note">
+      Your browser doesn't support WebSerial. Use desktop <b>Chrome</b> or
+      <b>Edge</b> (WebSerial isn't available on Firefox, Safari, or mobile
+      browsers).
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Before you click flash</h2>
+    <ul class="checklist">
+      <li>Desktop Chrome or Edge (WebSerial requirement — no Firefox, no Safari, no mobile)</li>
+      <li>A USB-C cable that actually carries data, not just power</li>
+      <li>The ESP32-2432S028R v2 "CYD" board — nothing to hold, no jumpers, no boot buttons, just plug in and click</li>
+      <li>A Datadog org (a trial works) with an <b>API Key</b> and a scoped <b>Application Key</b> — see step-by-step setup below</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>What happens after flashing</h2>
+    <ol class="steps">
+      <li><span class="n">1</span><span class="t">The board reboots and broadcasts an open WiFi network named <b>BarkBoard-XXXX</b> (last 4 hex digits of its MAC). No password — join it from your phone or laptop.</span></li>
+      <li><span class="n">2</span><span class="t">A captive portal opens automatically (or visit <code>http://192.168.4.1</code>) — pick your home WiFi network and enter its password.</span></li>
+      <li><span class="n">3</span><span class="t">The board joins your network and drops its own AP. Open <code>http://barkboard.local</code> (or the IP address shown on the panel) to reach the setup page.</span></li>
+      <li><span class="n">4</span><span class="t">Enter your Datadog <b>API Key</b> and <b>Application Key</b> — no site/region field. BarkBoard probes the known Datadog sites automatically and stores whichever one validates.</span></li>
+      <li><span class="n">5</span><span class="t">Once validated, the device starts polling and rotates through its dashboard screens: Overview, Monitors, Incidents, On-Call, and SLOs.</span></li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Datadog key setup</h2>
+    <p style="color:var(--ink-muted);font-size:14px;line-height:1.6;margin:0 0 12px">
+      In <i>Organization Settings → API Keys</i>, create/copy an <b>API Key</b>.
+      In <i>Organization Settings → Application Keys</i>, create an
+      <b>Application Key</b> scoped with read access to:
+    </p>
+    <ul class="checklist" style="grid-template-columns:1fr 1fr">
+      <li>Monitors</li>
+      <li>Incidents</li>
+      <li>On-Call</li>
+      <li>SLOs</li>
+      <li>Hosts</li>
+    </ul>
+    <p style="color:var(--ink-muted);font-size:13px;margin-top:12px">
+      Scope names in the Datadog UI can shift over time — double-check the
+      current list when you create the key.
+    </p>
+  </div>
+
+  <div class="card gotchas">
+    <h2>Hardware gotchas worth knowing up front</h2>
+    <ul class="checklist">
+      <li>This board's panel needs <code>ILI9341_2_DRIVER</code>, not <code>ST7789_DRIVER</code> — the firmware already has this right, just flagging it in case you're comparing against older CYD writeups.</li>
+      <li>The panel is dim and color-shifts noticeably off-axis. Straight-on viewing looks best; don't judge contrast from an angle.</li>
+      <li>If the screen stays solid white after flashing, it's almost always a USB cable that's power-only — swap it before assuming the flash failed.</li>
+    </ul>
+  </div>
+
+  <footer>
+    This firmware image is built straight from the BarkBoard repo's
+    <code>src/</code> via GitHub Actions on every push to <code>main</code> —
+    see the repo's <code>README.md</code> for source and prerequisites, and
+    <code>BARKBOARD_PLAN.md</code> / <code>DESIGN.md</code> for the full
+    architecture and screen-by-screen spec.
+    Flashing here is powered by <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a>.
+  </footer>
+</div>
+</body>
+</html>

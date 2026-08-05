@@ -1,0 +1,106 @@
+name: Build & Deploy Browser Flasher
+
+# Builds the firmware, drops the binaries into docs/ alongside the existing
+# ESP Web Tools page (docs/index.html + docs/manifest.json), and deploys
+# docs/ to GitHub Pages via the modern actions/deploy-pages flow.
+#
+# This is intentionally a SEPARATE workflow from build.yml (the compile-check
+# CI) — that one stays untouched. This one additionally publishes artifacts.
+#
+# One-time setup a human still needs to do in the repo's GitHub settings
+# (cannot be done from a workflow file or a sandboxed agent):
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+# Without that toggle, this workflow will build successfully but the
+# deploy-pages step will fail (Pages isn't provisioned to accept it yet).
+#
+# Trigger: every push to main. (A release-tag trigger was considered instead,
+# but this repo doesn't currently cut tags/releases, so "latest main" is the
+# more useful default for a hobby project — flip to `on: release: types:
+# [published]` later if versioned firmware drops become desirable.)
+
+# Path filters keep this from redeploying on doc-only commits (README/plan/
+# design edits) — only firmware-affecting files or the flasher page's own
+# template files trigger a rebuild+redeploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "assets/**"
+      - "platformio.ini"
+      - "docs/index.html"
+      - "docs/manifest.json"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware (cyd environment)
+        run: pio run -e cyd
+
+      - name: Copy binaries into docs/
+        run: |
+          set -eu
+          BUILD_DIR=.pio/build/cyd
+          cp "$BUILD_DIR/bootloader.bin" docs/bootloader.bin
+          cp "$BUILD_DIR/partitions.bin" docs/partitions.bin
+          cp "$BUILD_DIR/firmware.bin" docs/firmware.bin
+
+          # boot_app0.bin isn't produced in the build dir — it ships inside
+          # the Arduino ESP32 framework package itself. Locate it the same
+          # way idedata.json's flash_images list does, rather than
+          # hardcoding a package version.
+          BOOT_APP0=$(find ~/.platformio/packages -type f -name boot_app0.bin | head -n1)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "Could not locate boot_app0.bin in ~/.platformio/packages" >&2
+            exit 1
+          fi
+          cp "$BOOT_APP0" docs/boot_app0.bin
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

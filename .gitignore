@@ -1,0 +1,18 @@
+.pio/
+.vscode/
+.DS_Store
+*.swp
+*.elf
+*.bin
+.env
+# Exception: docs/ hosts the pre-built firmware for the browser flasher
+# (docs/index.html + manifest.json) — these ARE meant to be committed and
+# are refreshed by .github/workflows/pages.yml on every push to main.
+!docs/*.bin
+tools/fonts/*.ttf
+
+# Agent instructions and internal dev/design docs — not meant for the public
+# repo. _reference/ also holds full mirrors of upstream projects
+# (pagerduty-cyd, ohmyclawd) that aren't this project's own code to publish.
+CLAUDE.md
+_reference/

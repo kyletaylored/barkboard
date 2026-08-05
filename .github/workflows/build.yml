@@ -1,0 +1,53 @@
+name: PlatformIO Build
+
+# Compile-only CI. This cannot flash or exercise real hardware — it exists to
+# catch build breaks (missing includes, bad LVGL config flags, etc.) on every
+# push/PR. Actual on-device verification (touch calibration, screen legibility,
+# WiFi reconnect behavior, live API calls) still has to happen on the physical
+# board — see CLAUDE.md.
+
+# Path filters keep this from re-running on doc-only commits (README/plan/
+# design edits, etc.) — only firmware-affecting files trigger a build.
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "include/**", "assets/**", "platformio.ini", ".github/workflows/build.yml"]
+  pull_request:
+    paths: ["src/**", "include/**", "assets/**", "platformio.ini", ".github/workflows/build.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware (cyd environment)
+        run: pio run -e cyd
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: barkboard-firmware
+          path: .pio/build/cyd/firmware.bin
+          if-no-files-found: error
+          retention-days: 14
