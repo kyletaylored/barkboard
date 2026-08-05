@@ -582,33 +582,46 @@ bool fetchSlos(std::vector<SloSummary>& out, String& err, int limit) {
     out.clear();
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
-    // v1/slo's "query" param is a name/description text search, NOT a tag
-    // filter — confirmed live that query=env:prod matched zero SLOs despite
-    // both test SLOs carrying that tag. "tags_query" is the real tag filter
-    // (confirmed live: tags_query=platform:github correctly narrowed to the
-    // one matching SLO out of two).
-    String url = apiBase() + "/api/v1/slo?limit=" + String(limit);
-    String scope = monitorTeamScope();   // same "team:x" tag convention as monitors
-    if (scope.length()) url += "&tags_query=" + urlEncode(scope);
-    // SLO objects also carry tags/monitor_ids/sli_specification/creator etc.
-    // we never read — same filtering discipline as the other list fetchers.
+    // /api/v1/slo/search, not /api/v1/slo — the search endpoint returns each
+    // SLO's current status (state/sli) inline, so the list can show a
+    // health-state dot without an N+1 fetchSloStatus() call per row. Its
+    // `query` param is unified facet search syntax (unverified live for a
+    // team-tag match specifically — this org's test SLOs carry no team_tags
+    // at all — but it mirrors the same "team:x" convention monitors/incidents
+    // already use here, and an empty/non-matching query just returns zero
+    // rows rather than erroring).
+    String url = apiBase() + "/api/v1/slo/search?page%5Bsize%5D=" + String(limit);
+    String scope = monitorTeamScope();
+    if (scope.length()) url += "&query=" + urlEncode(scope);
+    // Real shape confirmed live: data.attributes.slos[] is an array of
+    // {data: {id, attributes: {name, slo_type, timeframe, target_threshold,
+    // status: {state, sli}}}} — deeper-nested than the old /api/v1/slo list,
+    // but the field *names* (target_threshold, timeframe) carried over
+    // unchanged, just relocated one level under "attributes".
     JsonDocument filter;
-    JsonObject sloFilter = filter["data"].add<JsonObject>();
-    sloFilter["id"] = true;
-    sloFilter["name"] = true;
-    sloFilter["type"] = true;
-    sloFilter["target_threshold"] = true;
-    sloFilter["timeframe"] = true;
+    JsonObject sloItemFilter = filter["data"]["attributes"]["slos"].add<JsonObject>();
+    JsonObject sloAttrFilter = sloItemFilter["data"].add<JsonObject>();
+    sloAttrFilter["id"] = true;
+    sloAttrFilter["attributes"]["name"] = true;
+    sloAttrFilter["attributes"]["slo_type"] = true;
+    sloAttrFilter["attributes"]["target_threshold"] = true;
+    sloAttrFilter["attributes"]["timeframe"] = true;
+    sloAttrFilter["attributes"]["status"]["state"] = true;
+    sloAttrFilter["attributes"]["status"]["sli"] = true;
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
 
-    for (JsonObject s : doc["data"].as<JsonArray>()) {
+    for (JsonObject item : doc["data"]["attributes"]["slos"].as<JsonArray>()) {
+        JsonObject s = item["data"];
+        JsonObject a = s["attributes"];
         SloSummary slo;
-        slo.id        = s["id"]               | "";
-        slo.name      = s["name"]             | "";
-        slo.type      = s["type"]             | "";
-        slo.target    = s["target_threshold"] | 0.0;
-        slo.timeframe = s["timeframe"]        | "";
+        slo.id        = s["id"]                  | "";
+        slo.name      = a["name"]                | "";
+        slo.type      = a["slo_type"]            | "";
+        slo.target    = a["target_threshold"]    | 0.0;
+        slo.timeframe = a["timeframe"]           | "";
+        slo.state     = a["status"]["state"]     | "";
+        slo.sliValue  = a["status"]["sli"]       | 0.0;
         out.push_back(slo);
         if ((int)out.size() >= limit) break;
     }

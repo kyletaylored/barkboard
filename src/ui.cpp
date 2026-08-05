@@ -238,6 +238,9 @@ static volatile bool s_incidentsFetchPending = false;
 
 // On-Call widgets
 static lv_obj_t* s_ocList = nullptr;
+static lv_obj_t* s_ocCurrentCard = nullptr;   // hero card for who's on call right now
+static lv_obj_t* s_ocCurrentIcon = nullptr;
+static lv_obj_t* s_ocCurrentName = nullptr;
 static std::vector<dd::OnCallEntry> s_lastOnCall;
 static volatile bool s_oncallFetchPending = false;
 
@@ -1671,11 +1674,40 @@ bool ui::incidentsFetchPending() {
 
 // ---- On-Call ----
 
+// Hero card height/gap — reserved above the escalation list so whoever's on
+// call *right now* reads at a glance, distinct from the escalation-step
+// rows below it (which all rendered identically before, active or not).
+#define OC_CARD_H   48
+#define OC_CARD_GAP 8
+
 static void buildOnCall() {
     lv_obj_t* s = s_dashScr[DASH_ONCALL];
+
+    s_ocCurrentCard = lv_obj_create(s);
+    lv_obj_set_size(s_ocCurrentCard, LIST_WIDTH, OC_CARD_H);
+    lv_obj_set_pos(s_ocCurrentCard, LIST_INSET, 30);
+    lv_obj_set_style_bg_color(s_ocCurrentCard, COLOR_PURPLE, 0);
+    lv_obj_set_style_border_width(s_ocCurrentCard, 0, 0);
+    lv_obj_set_style_radius(s_ocCurrentCard, 8, 0);
+    lv_obj_clear_flag(s_ocCurrentCard, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_ocCurrentCard, LV_OBJ_FLAG_HIDDEN);   // shown once real data lands
+
+    s_ocCurrentIcon = lv_label_create(s_ocCurrentCard);
+    lv_obj_set_style_text_font(s_ocCurrentIcon, &outfit_bold_16, 0);
+    lv_obj_set_style_text_color(s_ocCurrentIcon, lv_color_white(), 0);
+    lv_label_set_text(s_ocCurrentIcon, LV_SYMBOL_CALL);
+    lv_obj_align(s_ocCurrentIcon, LV_ALIGN_LEFT_MID, 12, 0);
+
+    s_ocCurrentName = lv_label_create(s_ocCurrentCard);
+    lv_obj_set_style_text_font(s_ocCurrentName, &outfit_bold_16, 0);
+    lv_obj_set_style_text_color(s_ocCurrentName, lv_color_white(), 0);
+    lv_obj_set_size(s_ocCurrentName, LIST_WIDTH - 44, OC_CARD_H - 12);
+    lv_label_set_long_mode(s_ocCurrentName, LV_LABEL_LONG_DOT);
+    lv_obj_align(s_ocCurrentName, LV_ALIGN_LEFT_MID, 36, 0);
+
     s_ocList = lv_list_create(s);
-    lv_obj_set_size(s_ocList, LIST_WIDTH, SCREEN_HEIGHT - 24 - 24 - 12);
-    lv_obj_set_pos(s_ocList, LIST_INSET, 30);
+    lv_obj_set_size(s_ocList, LIST_WIDTH, SCREEN_HEIGHT - 24 - 24 - 12 - OC_CARD_H - OC_CARD_GAP);
+    lv_obj_set_pos(s_ocList, LIST_INSET, 30 + OC_CARD_H + OC_CARD_GAP);
     lv_obj_set_style_bg_opa(s_ocList, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ocList, 0, 0);
     lv_obj_set_style_pad_all(s_ocList, 0, 0);
@@ -1691,6 +1723,7 @@ void ui::notifyOnCallRefreshed(const std::vector<dd::OnCallEntry>& entries, bool
     s_lastOnCall = entries;
     if (!s_ocList) return;
     lv_obj_clean(s_ocList);
+    lv_obj_add_flag(s_ocCurrentCard, LV_OBJ_FLAG_HIDDEN);
 
     if (needsTeamPick) {
         lv_obj_t* empty = lv_label_create(s_ocList);
@@ -1714,10 +1747,33 @@ void ui::notifyOnCallRefreshed(const std::vector<dd::OnCallEntry>& entries, bool
         return;
     }
 
+    // Split "Current" (escalationLevel==0) from escalation steps — the
+    // former get the hero card up top instead of blending into the dense
+    // list at the same visual weight as everyone else in the policy.
+    String currentNames;
+    bool anyEscalation = false;
     for (const dd::OnCallEntry& e : entries) {
-        // e.schedule is already fully descriptive ("Current" / "Escalation
-        // step N" — see fetchOnCallForTeamId()'s doc comment in datadog.h);
-        // appending escalationLevel too would just repeat the same number.
+        if (e.escalationLevel == 0) {
+            if (currentNames.length()) currentNames += " & ";
+            currentNames += e.user.length() ? e.user : "(unassigned)";
+        } else {
+            anyEscalation = true;
+        }
+    }
+    if (currentNames.length()) {
+        lv_label_set_text(s_ocCurrentName, currentNames.c_str());
+        lv_obj_clear_flag(s_ocCurrentCard, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (!anyEscalation) {
+        lv_obj_t* empty = lv_label_create(s_ocList);
+        lv_obj_set_style_text_font(empty, &outfit_thin_14, 0);
+        lv_obj_set_style_text_color(empty, COLOR_MUTED, 0);
+        lv_label_set_text(empty, "No escalation policy configured.");
+        return;
+    }
+    for (const dd::OnCallEntry& e : entries) {
+        if (e.escalationLevel == 0) continue;   // already shown in the hero card
         // No dot (no health-state concept here) and no click handler — this
         // screen has no On-Call Detail to drill into, same as before.
         buildTableRow(s_ocList, false, COLOR_MUTED,
@@ -1754,6 +1810,14 @@ static void buildSlos() {
     lv_label_set_text(empty, "Loading SLOs...");
 }
 
+// SLOState values (Datadog API): "breached" | "warning" | "ok" | "no_data".
+static lv_color_t sloStateColor(const String& state) {
+    if (state == "breached") return COLOR_ALERT;
+    if (state == "warning") return COLOR_WARN;
+    if (state == "ok") return COLOR_OK;
+    return COLOR_NODATA;   // "no_data" or unset (older cached rows, etc.)
+}
+
 void ui::notifySlosRefreshed() {
     if (!s_sloList) return;
     lv_obj_clean(s_sloList);
@@ -1770,7 +1834,7 @@ void ui::notifySlosRefreshed() {
     for (size_t i = 0; i < slos.size(); ++i) {
         const dd::SloSummary& slo = slos[i];
         String metaText = String(slo.target, 2) + "% target - " + slo.timeframe;
-        lv_obj_t* row = buildTableRow(s_sloList, false, COLOR_MUTED, slo.name, metaText);
+        lv_obj_t* row = buildTableRow(s_sloList, true, sloStateColor(slo.state), slo.name, metaText);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_user_data(row, (void*)(intptr_t)i);
         lv_obj_add_event_cb(row, [](lv_event_t* e) {

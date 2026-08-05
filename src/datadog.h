@@ -61,6 +61,13 @@ struct SloSummary {
     String type;             // "monitor" | "time_slice" | "metric"
     double target = 0;       // target_threshold, e.g. 99.9
     String timeframe;        // e.g. "7d", "30d"
+    // Populated by fetchSlos() via GET /api/v1/slo/search (which returns
+    // current status inline per SLO, unlike GET /api/v1/slo — see its doc
+    // comment) so the list can show a health-state dot without an N+1
+    // fetchSloStatus() call per row. "breached" | "warning" | "ok" |
+    // "no_data" (SLOState); sliValue is the current SLI percentage.
+    String state;
+    double sliValue = 0;
 };
 
 struct SloStatus {
