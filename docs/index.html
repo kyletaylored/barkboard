@@ -207,17 +207,6 @@
 
   .bb-detail{max-width:900px;margin:24px auto 0;padding:28px}
   .bb-detail h2{font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 16px}
-  .bb-detail-checklist{list-style:none;margin:0;padding:0;display:grid;gap:10px;color:var(--ink-muted);font-size:14px}
-  .bb-detail-checklist li{display:flex;gap:10px;align-items:flex-start;line-height:1.5}
-  .bb-detail-checklist li::before{content:'✓';color:var(--ok);font-weight:800;flex:0 0 auto}
-  .bb-detail-steps{margin:0;padding:0;list-style:none;display:grid;gap:14px}
-  .bb-detail-steps li{display:flex;gap:14px;align-items:flex-start}
-  .bb-detail-steps .n{flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:var(--border);color:var(--ink-strong);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800}
-  .bb-detail-steps .t{color:var(--ink);font-size:15px;line-height:1.6}
-  .bb-detail-steps .t b{color:var(--ink-strong)}
-  .bb-detail-gotchas h2{color:var(--warn)}
-  .bb-detail-gotchas li::before{content:'⚠';color:var(--warn)}
-  .bb-detail-note{color:var(--ink-dim);font-size:13px;margin-top:12px}
 
   @media (max-width: 640px){
     .bb-flash-actions{margin-left:0;width:100%}
@@ -290,50 +279,11 @@
 </div>
 
 <div class="bb-detail bb-card">
-  <h2>Before you click flash</h2>
-  <ul class="bb-detail-checklist">
-    <li>Desktop Chrome or Edge (WebSerial requirement — no Firefox, no Safari, no mobile)</li>
-    <li>A USB-C cable that actually carries data, not just power</li>
-    <li>The ESP32-2432S028R v2 "CYD" board — nothing to hold, no jumpers, no boot buttons, just plug in and click</li>
-    <li>A Datadog org (a trial works) with an <b>API Key</b> and a scoped <b>Application Key</b> — see step-by-step setup below</li>
-  </ul>
-</div>
-
-<div class="bb-detail bb-card">
-  <h2>What happens after flashing</h2>
-  <ol class="bb-detail-steps">
-    <li><span class="n">1</span><span class="t">The board reboots and broadcasts an open WiFi network named <b>BarkBoard-XXXX</b> (last 4 hex digits of its MAC). No password — join it from your phone or laptop.</span></li>
-    <li><span class="n">2</span><span class="t">A captive portal opens automatically (or visit <code>http://192.168.4.1</code>) — pick your home WiFi network and enter its password.</span></li>
-    <li><span class="n">3</span><span class="t">The board joins your network and drops its own AP. Open <code>http://barkboard.local</code> (or the IP address shown on the panel) to reach the setup page.</span></li>
-    <li><span class="n">4</span><span class="t">Enter your Datadog <b>API Key</b> and <b>Application Key</b> — no site/region field. BarkBoard probes the known Datadog sites automatically and stores whichever one validates.</span></li>
-    <li><span class="n">5</span><span class="t">Once validated, the device starts polling and rotates through its dashboard screens: Overview, Monitors, Incidents, On-Call, and SLOs.</span></li>
-  </ol>
-</div>
-
-<div class="bb-detail bb-card">
-  <h2>Datadog key setup</h2>
-  <p style="color:var(--ink-muted);font-size:14px;line-height:1.6;margin:0 0 12px">
-    In <i>Organization Settings → API Keys</i>, create/copy an <b>API Key</b>.
-    In <i>Organization Settings → Application Keys</i>, create an
-    <b>Application Key</b> scoped with read access to:
+  <h2>Need help?</h2>
+  <p style="color:var(--ink-muted);font-size:14px;line-height:1.6;margin:0">
+    Full setup instructions, hardware requirements, and troubleshooting live in the
+    <a href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener">BarkBoard README</a>.
   </p>
-  <ul class="bb-detail-checklist" style="grid-template-columns:1fr 1fr">
-    <li>Monitors</li>
-    <li>Incidents</li>
-    <li>On-Call</li>
-    <li>SLOs</li>
-    <li>Hosts</li>
-  </ul>
-  <p class="bb-detail-note">Scope names in the Datadog UI can shift over time — double-check the current list when you create the key.</p>
-</div>
-
-<div class="bb-detail bb-card bb-detail-gotchas">
-  <h2>Hardware gotchas worth knowing up front</h2>
-  <ul class="bb-detail-checklist">
-    <li>This board's panel needs <code>ILI9341_2_DRIVER</code>, not <code>ST7789_DRIVER</code> — the firmware already has this right, just flagging it in case you're comparing against older CYD writeups.</li>
-    <li>The panel is dim and color-shifts noticeably off-axis. Straight-on viewing looks best; don't judge contrast from an angle.</li>
-    <li>If the screen stays solid white after flashing, it's almost always a USB cable that's power-only — swap it before assuming the flash failed.</li>
-  </ul>
 </div>
 
 <div class="bb-footer">
@@ -355,9 +305,8 @@
     <p>A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8&Prime; touchscreen sitting on your desk.</p>
     <div class="bb-modal-label">What you'll need</div>
     <ul>
-      <li>An ESP32-2432S028R "CYD" board and a USB-C data cable</li>
-      <li>A Datadog org with an API Key and a scoped Application Key (read access to Monitors, Incidents, On-Call, SLOs, Hosts)</li>
-      <li>Desktop Chrome or Edge</li>
+      <li>An ESP32-2432S028R "CYD" board and a data cable</li>
+      <li>A Datadog org with an API Key and an Application Key</li>
     </ul>
     <div class="bb-modal-label">After flashing</div>
     <ol>
