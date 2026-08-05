@@ -268,12 +268,15 @@ bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEp
 // alerted at all.
 bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
 
-// Equivalent chart source for "log alert" monitors, which have no metrics
-// query at all (fetchMonitorChartSeries() correctly refuses these). Pulls a
-// log-count timeseries from the Logs Aggregate API instead, over the same
-// alert-anchored window. Only called for monitor.type == "log alert"; see
-// the dispatch in fetchMonitorDetailAndChart().
+// Equivalent chart sources for "log alert" / "trace-analytics alert" /
+// "rum alert" monitors, none of which have a metrics query at all
+// (fetchMonitorChartSeries() correctly refuses all three). Each pulls a
+// count timeseries from its respective Aggregate API instead, over the same
+// alert-anchored window; see the shared fetchNonMetricChartSeries() in
+// datadog.cpp. Dispatched by monitor.type in fetchMonitorDetailAndChart().
 bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
+bool fetchTraceMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
+bool fetchRumMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
 
 // ---- Declare: Case / Incident (Monitor Detail action bar) ----
 

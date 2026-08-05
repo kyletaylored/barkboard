@@ -1031,16 +1031,20 @@ static String jsonEscape(const String& s) {
     return out;
 }
 
-// A log-alert monitor's `query` is an evaluation expression, e.g.
-// logs("service:foo status:error").index("*").rollup("count").last("5m") > 100
-// — the chartable part is the search string inside logs("..."). Handles the
-// one escape logs monitor queries actually use in practice (a literal `"`
-// inside the search string is written `\"`); anything more exotic just fails
-// closed (query stays empty, caller reports "no search query found").
-static String extractLogSearchQuery(const String& raw) {
-    int start = raw.indexOf("logs(\"");
+// A log/trace-analytics/rum-alert monitor's `query` is an evaluation
+// expression, e.g. logs("service:foo status:error").index("*").rollup(...)
+// or trace-analytics("service:foo").rollup(...) or rum("...").rollup(...) —
+// the chartable part is always the search string inside <wrapperPrefix>"...".
+// Confirmed the trace-analytics/rum wrapper names live against real
+// production monitor queries (dd-go's apmTraceAnalyticsMonitorOkAlert /
+// dogweb's rum_alert grammar), not guessed. Handles the one escape these
+// queries actually use in practice (a literal `"` inside the search string
+// is written `\"`); anything more exotic just fails closed (empty result,
+// caller reports "no search query found").
+static String extractWrappedQuery(const String& raw, const char* wrapperPrefix) {
+    int start = raw.indexOf(wrapperPrefix);
     if (start < 0) return "";
-    start += 6;   // past logs("
+    start += strlen(wrapperPrefix);
     String out;
     for (int i = start; i < (int)raw.length(); ++i) {
         char c = raw[i];
@@ -1051,22 +1055,13 @@ static String extractLogSearchQuery(const String& raw) {
     return out;
 }
 
-// Log-alert monitors have no metrics query at all (isChartableMonitorType()
-// correctly excludes "log alert" from the /api/v1/query path) — this is
-// their equivalent chart source: a log count timeseries over the same
-// alert-anchored window fetchMonitorChartSeries() uses, via the Logs
-// Aggregate API. Response shape confirmed against datadog-api-client-go's
-// model_logs_aggregate_*.go (LogsAggregateBucket.Computes is a map keyed by
-// compute index — "c0" for the single, unnamed compute below — whose value
-// is an array of {time, value} points when type=timeseries, not a single
-// number as it would be for type=total).
-// Datadog's Logs Aggregate API returns each timeseries point's time as an
-// RFC3339/ISO8601 string ("2024-01-01T00:00:00.000Z"), unlike /api/v1/query's
-// epoch-ms number — needed now that Monitor Detail's tap-to-inspect shows a
-// point's timestamp. Howard Hinnant's days-from-civil algorithm (proleptic
-// Gregorian, UTC) rather than mktime()/timegm() — avoids any local-timezone
-// ambiguity, and this format is fixed/predictable enough that a full RFC3339
-// parser isn't needed.
+// Datadog's Logs/Spans/RUM Aggregate APIs all return each timeseries point's
+// time as an RFC3339/ISO8601 string ("2024-01-01T00:00:00.000Z"), unlike
+// /api/v1/query's epoch-ms number — needed now that Monitor Detail's
+// tap-to-inspect shows a point's timestamp. Howard Hinnant's days-from-civil
+// algorithm (proleptic Gregorian, UTC) rather than mktime()/timegm() — avoids
+// any local-timezone ambiguity, and this format is fixed/predictable enough
+// that a full RFC3339 parser isn't needed.
 static long long parseIso8601ToEpochSec(const String& iso) {
     int y, mo, d, h, mi, s;
     if (sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s) != 6) return 0;
@@ -1079,17 +1074,32 @@ static long long parseIso8601ToEpochSec(const String& iso) {
     return days * 86400LL + h * 3600LL + mi * 60LL + s;
 }
 
-bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+// Shared by fetchLogMonitorChartSeries/fetchTraceMonitorChartSeries/
+// fetchRumMonitorChartSeries — log-alert, trace-analytics-alert, and
+// rum-alert monitors all have no metrics query at all (isChartableMonitorType()
+// correctly excludes all three from the /api/v1/query path), and their three
+// equivalent Aggregate APIs share an identical request shape ({filter:
+// {query,from,to}, compute:[{aggregation:"count",type:"timeseries",
+// interval:"1m"}]}) and an identical {time,value} timeseries-point shape —
+// confirmed against datadog-api-client-go's model_{logs,spans,rum}_*.go.
+// The one structural difference: Spans buckets nest computes one level
+// deeper, under "attributes" (SpansAggregateBucket.Attributes.Computes),
+// while Logs/RUM buckets are flat (LogsAggregateBucket.Computes /
+// RUMBucketResponse.Computes) — hence nestedUnderAttributes.
+static bool fetchNonMetricChartSeries(const Monitor& monitor, const char* wrapperPrefix,
+                                       const char* urlPath, bool nestedUnderAttributes,
+                                       const char* kindNameForError,
+                                       std::vector<MetricPoint>& out, String& err) {
     out.clear();
-    String logQuery = extractLogSearchQuery(monitor.query);
-    if (logQuery.length() == 0) { err = "no search query found in this monitor's log query"; return false; }
+    String q = extractWrappedQuery(monitor.query, wrapperPrefix);
+    if (q.length() == 0) { err = String("no search query found in this monitor's ") + kindNameForError + " query"; return false; }
 
     uint32_t to, from;
-    std::vector<String> unusedGroups;   // monitor_groups is metric-query scoping only; logs charting ignores it
+    std::vector<String> unusedGroups;   // monitor_groups is metric-query scoping only; these charting paths ignore it
     computeChartWindow(monitor.id, from, to, unusedGroups);
 
-    String url = apiBase() + "/api/v2/logs/analytics/aggregate";
-    String body = String("{\"filter\":{\"query\":\"") + jsonEscape(logQuery) +
+    String url = apiBase() + urlPath;
+    String body = String("{\"filter\":{\"query\":\"") + jsonEscape(q) +
                   "\",\"from\":\"" + String((long long)from * 1000) + "\",\"to\":\"" + String((long long)to * 1000) +
                   "\"},\"compute\":[{\"aggregation\":\"count\",\"type\":\"timeseries\",\"interval\":\"1m\"}]}";
     JsonDocument doc;
@@ -1097,14 +1107,29 @@ bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>
 
     JsonArray buckets = doc["data"]["buckets"].as<JsonArray>();
     if (buckets.size() == 0) { err = "no buckets returned"; return false; }
-    for (JsonVariant pt : buckets[0]["computes"]["c0"].as<JsonArray>()) {
+    JsonArray points = nestedUnderAttributes
+        ? buckets[0]["attributes"]["computes"]["c0"].as<JsonArray>()
+        : buckets[0]["computes"]["c0"].as<JsonArray>();
+    for (JsonVariant pt : points) {
         MetricPoint p;
         p.tsSec = (uint32_t)parseIso8601ToEpochSec(pt["time"] | "");
         p.value = pt["value"] | 0.0;
         out.push_back(p);
     }
-    if (out.empty()) { err = "no data points in log aggregate response"; return false; }
+    if (out.empty()) { err = "no data points in aggregate response"; return false; }
     return true;
+}
+
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+    return fetchNonMetricChartSeries(monitor, "logs(\"", "/api/v2/logs/analytics/aggregate", false, "log", out, err);
+}
+
+bool fetchTraceMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+    return fetchNonMetricChartSeries(monitor, "trace-analytics(\"", "/api/v2/spans/analytics/aggregate", true, "trace-analytics", out, err);
+}
+
+bool fetchRumMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+    return fetchNonMetricChartSeries(monitor, "rum(\"", "/api/v2/rum/analytics/aggregate", false, "rum", out, err);
 }
 
 static MonitorDetailResult g_lastMonitorDetailResult;
@@ -1122,9 +1147,10 @@ bool fetchMonitorDetailAndChart(long monitorId) {
         r.warningThreshold = detail.warningThreshold;
         r.thresholdsApplicable = isRawMetricQuery(detail.query);
         String t = detail.type; t.toLowerCase();
-        r.chartOk = (t == "log alert")
-            ? fetchLogMonitorChartSeries(detail, r.chart, r.err)
-            : fetchMonitorChartSeries(detail, r.chart, r.err);
+        if (t == "log alert")             r.chartOk = fetchLogMonitorChartSeries(detail, r.chart, r.err);
+        else if (t == "trace-analytics alert") r.chartOk = fetchTraceMonitorChartSeries(detail, r.chart, r.err);
+        else if (t == "rum alert")        r.chartOk = fetchRumMonitorChartSeries(detail, r.chart, r.err);
+        else                              r.chartOk = fetchMonitorChartSeries(detail, r.chart, r.err);
     }
     g_lastMonitorDetailResult = r;
     return r.detailOk;
