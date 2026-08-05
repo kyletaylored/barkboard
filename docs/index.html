@@ -135,10 +135,6 @@
     appearance:none;font-size:13px;font-weight:600;color:var(--ink-dim);background:var(--bg);
     border:1px solid var(--border);border-radius:8px;padding:10px 34px 10px 14px;cursor:not-allowed;
   }
-  .bb-badge-soon{
-    font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--purple);
-    background:var(--purple-soft);border:1px solid var(--purple-border);border-radius:6px;padding:5px 8px;
-  }
   .bb-flash-actions{margin-left:auto;display:flex;gap:10px}
   .bb-btn-primary-sm{
     appearance:none;border:none;cursor:pointer;font-size:13px;font-weight:700;color:oklch(0.99 0 0);
@@ -247,7 +243,6 @@
       <div class="bb-flashrow" id="flashRow">
         <select class="bb-select" disabled><option>Board — ESP32-2432S028R (CYD)</option></select>
         <select class="bb-select" disabled id="firmwareSelect"><option>Firmware — latest</option></select>
-        <span class="bb-badge-soon">More boards soon</span>
         <div class="bb-flash-actions">
           <button type="button" class="bb-btn-primary-sm" id="btnProgram" disabled>Program</button>
           <button type="button" class="bb-btn-erase" id="btnErase" disabled>Erase</button>
@@ -395,6 +390,7 @@ function selectTab(tab) {
   els.tabTerminal.classList.toggle('is-active', tab === 'terminal');
   els.flashRow.style.display = tab === 'flash' ? '' : 'none';
   if (tab === 'terminal') enterTerminalMode();
+  else stopTerminalMode();
 }
 
 // --- About modal ---
@@ -517,7 +513,7 @@ async function connectDevice() {
 }
 
 async function disconnectDevice() {
-  rawReadActive = false;
+  stopTerminalMode();
   try { if (transport) await transport.disconnect(); } catch (e) {}
   port = null; transport = null; esploader = null; inBootloader = false;
   deviceInfo = null;
@@ -531,27 +527,46 @@ window.addEventListener('beforeunload', () => {
 });
 
 // --- Serial terminal ---
+// We deliberately never force a chip reset here: auto-reset (RTS pulse) doesn't
+// reliably bring every CYD board variant back to a running state, so streaming
+// only starts once the board is already out of the bootloader on its own. The
+// reader is held directly (not via transport.rawRead) so it can be cancelled
+// cleanly before esptool-js needs the port again for Program/Erase.
+let termReader = null;
+
 async function enterTerminalMode() {
   if (!state.connected || rawReadActive || state.flashing || state.erasing) return;
+  if (inBootloader) {
+    addLog('Board is in flashing mode — press its reset button (or unplug and replug it) to see live output here.', 'sys');
+  }
+  rawReadActive = true;
+  const decoder = new TextDecoder();
   try {
-    if (inBootloader) {
-      addLog('Resetting into application...', 'sys');
-      await esploader.after('hard_reset');
-      inBootloader = false;
+    while (port.readable && rawReadActive) {
+      termReader = port.readable.getReader();
+      try {
+        while (rawReadActive) {
+          const { value, done } = await termReader.read();
+          if (done) break;
+          addLog(decoder.decode(value), 'default');
+        }
+      } finally {
+        termReader.releaseLock();
+        termReader = null;
+      }
     }
-    rawReadActive = true;
-    const decoder = new TextDecoder();
-    transport.rawRead(
-      (data) => addLog(decoder.decode(data), 'default'),
-      () => !rawReadActive || !state.connected
-    ).catch((err) => addLog('[serial read error: ' + err + ']', 'error'));
   } catch (err) {
-    addLog('Could not start serial terminal: ' + err, 'error');
+    if (rawReadActive) addLog('[serial read error: ' + err + ']', 'error');
   }
 }
 
-async function ensureBootloader() {
+function stopTerminalMode() {
   rawReadActive = false;
+  if (termReader) termReader.cancel().catch(() => {});
+}
+
+async function ensureBootloader() {
+  stopTerminalMode();
   if (!inBootloader) {
     addLog('Re-entering bootloader...', 'sys');
     await esploader.connect();
