@@ -1335,7 +1335,15 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
         Serial.println("[ui] ckpt: post-set_point_count");
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)lo, (lv_coord_t)hi);
-        lv_chart_remove_series(s_detailChart, lv_chart_get_series_next(s_detailChart, nullptr));
+        // lv_chart_remove_series() asserts its series arg is non-NULL — on a
+        // freshly created chart (first monitor opened this boot) the series
+        // list is empty, so lv_chart_get_series_next(chart, NULL) correctly
+        // returns NULL, and passing that straight through used to trip
+        // LV_ASSERT_HANDLER (default: a bare `while(1);`, no yield) and
+        // permanently hang whichever core called this. Only remove when a
+        // series actually exists (i.e. this chart has been populated before).
+        lv_chart_series_t* existingSer = lv_chart_get_series_next(s_detailChart, nullptr);
+        if (existingSer) lv_chart_remove_series(s_detailChart, existingSer);
         Serial.println("[ui] ckpt: post-remove_series");
         lv_chart_series_t* ser = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
         Serial.println("[ui] ckpt: post-add_series");
