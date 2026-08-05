@@ -261,6 +261,13 @@ bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEp
 // alerted at all.
 bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
 
+// Equivalent chart source for "log alert" monitors, which have no metrics
+// query at all (fetchMonitorChartSeries() correctly refuses these). Pulls a
+// log-count timeseries from the Logs Aggregate API instead, over the same
+// alert-anchored window. Only called for monitor.type == "log alert"; see
+// the dispatch in fetchMonitorDetailAndChart().
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
+
 // ---- Declare: Case / Incident (Monitor Detail action bar) ----
 
 // Cases need a project (org-specific, so fetched live) — everything else

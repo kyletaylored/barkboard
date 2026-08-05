@@ -795,6 +795,9 @@ bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEp
 // back as a parser error from /api/v1/query); the rest are documented types
 // with the same fundamental mismatch, best-effort since this org doesn't
 // have one of each to test against.
+// "log alert" is deliberately still in this list — it's not chartable via
+// THIS (the /api/v1/query metric) path. It has its own path instead, see
+// fetchLogMonitorChartSeries() and its dispatch in fetchMonitorDetailAndChart().
 static bool isChartableMonitorType(const String& type) {
     static const char* const NOT_CHARTABLE[] = {
         "log alert", "synthetics alert", "event alert", "event-v2 alert",
@@ -931,6 +934,30 @@ static String scopeQueryToGroups(const String& query, const std::vector<String>&
     return query.substring(0, open + 1) + merged + query.substring(close);
 }
 
+// Anchor the chart window on the monitor's most recent alert event instead
+// of "now" — confirmed live this matters: a monitor that's already
+// recovered shows a flat, uneventful "last 1h from now" window, while
+// anchoring on when it actually fired shows the real spike. Falls back to a
+// live "now" window if there's no recent event (never fired, or events
+// lookup failed). Shared by both the metric and log chart paths; `outGroups`
+// (monitor_groups from the alert event, metric-query-scoping only — logs
+// charting ignores it) is populated only on the anchored path.
+static void computeChartWindow(long monitorId, uint32_t& from, uint32_t& to, std::vector<String>& outGroups) {
+    outGroups.clear();
+    String eventId; long long eventTsMs = 0; String eventErr;
+    if (fetchLatestMonitorAlertEvent(monitorId, eventId, eventTsMs, outGroups, eventErr) && eventTsMs > 0) {
+        to = (uint32_t)(eventTsMs / 1000);
+        from = (to > 3600) ? to - 3600 : 0;
+        Serial.printf("[dd] chart window: anchored on alert event (id=%s, groups=%d) from=%u to=%u\n",
+                      eventId.c_str(), (int)outGroups.size(), from, to);
+    } else {
+        to = (uint32_t)time(nullptr);
+        from = (to > 3600) ? to - 3600 : 0;
+        Serial.printf("[dd] chart window: no recent event (%s) — live 'now' window from=%u to=%u\n",
+                      eventErr.c_str(), from, to);
+    }
+}
+
 bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
     out.clear();
     if (!isChartableMonitorType(monitor.type)) {
@@ -940,25 +967,9 @@ bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& o
         return false;
     }
 
-    // Anchor the window on the monitor's most recent alert event instead of
-    // "now" — confirmed live this matters: a monitor that's already
-    // recovered shows a flat, uneventful "last 1h from now" window, while
-    // anchoring on when it actually fired shows the real spike. Falls back
-    // to a live "now" window if there's no recent event (never fired, or
-    // events lookup failed) — same behavior as before this existed.
-    String eventId; long long eventTsMs = 0; std::vector<String> groups; String eventErr;
     uint32_t to, from;
-    if (fetchLatestMonitorAlertEvent(monitor.id, eventId, eventTsMs, groups, eventErr) && eventTsMs > 0) {
-        to = (uint32_t)(eventTsMs / 1000);
-        from = (to > 3600) ? to - 3600 : 0;
-        Serial.printf("[dd] chart window: anchored on alert event (id=%s, groups=%d) from=%u to=%u\n",
-                      eventId.c_str(), (int)groups.size(), from, to);
-    } else {
-        to = (uint32_t)time(nullptr);
-        from = (to > 3600) ? to - 3600 : 0;
-        Serial.printf("[dd] chart window: no recent event (%s) — live 'now' window from=%u to=%u\n",
-                      eventErr.c_str(), from, to);
-    }
+    std::vector<String> groups;
+    computeChartWindow(monitor.id, from, to, groups);
 
     String q = extractChartableQuery(monitor.query);
     if (!groups.empty()) {
@@ -993,6 +1004,81 @@ bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& o
     return fetchMetricSeries(q, from, to, out, err);
 }
 
+// Titles/queries embedded in JSON bodies need escaping — both are free text
+// (org-defined) and can contain '"' or '\', which would otherwise break the
+// JSON.
+static String jsonEscape(const String& s) {
+    String out; out.reserve(s.length() + 8);
+    for (size_t i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if (c == '\n') out += "\\n";
+        else out += c;
+    }
+    return out;
+}
+
+// A log-alert monitor's `query` is an evaluation expression, e.g.
+// logs("service:foo status:error").index("*").rollup("count").last("5m") > 100
+// — the chartable part is the search string inside logs("..."). Handles the
+// one escape logs monitor queries actually use in practice (a literal `"`
+// inside the search string is written `\"`); anything more exotic just fails
+// closed (query stays empty, caller reports "no search query found").
+static String extractLogSearchQuery(const String& raw) {
+    int start = raw.indexOf("logs(\"");
+    if (start < 0) return "";
+    start += 6;   // past logs("
+    String out;
+    for (int i = start; i < (int)raw.length(); ++i) {
+        char c = raw[i];
+        if (c == '\\' && i + 1 < (int)raw.length() && raw[i + 1] == '"') { out += '"'; i++; continue; }
+        if (c == '"') break;
+        out += c;
+    }
+    return out;
+}
+
+// Log-alert monitors have no metrics query at all (isChartableMonitorType()
+// correctly excludes "log alert" from the /api/v1/query path) — this is
+// their equivalent chart source: a log count timeseries over the same
+// alert-anchored window fetchMonitorChartSeries() uses, via the Logs
+// Aggregate API. Response shape confirmed against datadog-api-client-go's
+// model_logs_aggregate_*.go (LogsAggregateBucket.Computes is a map keyed by
+// compute index — "c0" for the single, unnamed compute below — whose value
+// is an array of {time, value} points when type=timeseries, not a single
+// number as it would be for type=total).
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+    out.clear();
+    String logQuery = extractLogSearchQuery(monitor.query);
+    if (logQuery.length() == 0) { err = "no search query found in this monitor's log query"; return false; }
+
+    uint32_t to, from;
+    std::vector<String> unusedGroups;   // monitor_groups is metric-query scoping only; logs charting ignores it
+    computeChartWindow(monitor.id, from, to, unusedGroups);
+
+    String url = apiBase() + "/api/v2/logs/analytics/aggregate";
+    String body = String("{\"filter\":{\"query\":\"") + jsonEscape(logQuery) +
+                  "\",\"from\":\"" + String((long long)from * 1000) + "\",\"to\":\"" + String((long long)to * 1000) +
+                  "\"},\"compute\":[{\"aggregation\":\"count\",\"type\":\"timeseries\",\"interval\":\"1m\"}]}";
+    JsonDocument doc;
+    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+
+    JsonArray buckets = doc["data"]["buckets"].as<JsonArray>();
+    if (buckets.size() == 0) { err = "no buckets returned"; return false; }
+    for (JsonVariant pt : buckets[0]["computes"]["c0"].as<JsonArray>()) {
+        MetricPoint p;
+        // Timestamp is an ISO8601 string here (unlike /api/v1/query's epoch-
+        // ms number) — not parsed since nothing downstream reads
+        // MetricPoint::tsSec for chart rendering (index-based decimation
+        // only; see ui::showMonitorDetail()), and adding an ISO8601 parser
+        // for a value nothing consumes isn't worth the code.
+        p.value = pt["value"] | 0.0;
+        out.push_back(p);
+    }
+    if (out.empty()) { err = "no data points in log aggregate response"; return false; }
+    return true;
+}
+
 static MonitorDetailResult g_lastMonitorDetailResult;
 const MonitorDetailResult& lastMonitorDetailResult() { return g_lastMonitorDetailResult; }
 
@@ -1007,24 +1093,13 @@ bool fetchMonitorDetailAndChart(long monitorId) {
         r.criticalThreshold = detail.criticalThreshold;
         r.warningThreshold = detail.warningThreshold;
         r.thresholdsApplicable = isRawMetricQuery(detail.query);
-        r.chartOk = fetchMonitorChartSeries(detail, r.chart, r.err);
+        String t = detail.type; t.toLowerCase();
+        r.chartOk = (t == "log alert")
+            ? fetchLogMonitorChartSeries(detail, r.chart, r.err)
+            : fetchMonitorChartSeries(detail, r.chart, r.err);
     }
     g_lastMonitorDetailResult = r;
     return r.detailOk;
-}
-
-// Titles built from monitor names need escaping — monitor names are
-// free text (org-defined) and can contain '"' or '\', which would
-// otherwise break the JSON bodies below.
-static String jsonEscape(const String& s) {
-    String out; out.reserve(s.length() + 8);
-    for (size_t i = 0; i < s.length(); ++i) {
-        char c = s[i];
-        if (c == '"' || c == '\\') { out += '\\'; out += c; }
-        else if (c == '\n') out += "\\n";
-        else out += c;
-    }
-    return out;
 }
 
 bool fetchCaseProjects(std::vector<CaseProject>& out, String& err) {
