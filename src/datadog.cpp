@@ -958,7 +958,7 @@ static void computeChartWindow(long monitorId, uint32_t& from, uint32_t& to, std
     }
 }
 
-bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery) {
+bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
     out.clear();
     if (!isChartableMonitorType(monitor.type)) {
         err = monitor.type.length()
@@ -1001,7 +1001,6 @@ bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& o
     }
     Serial.printf("[dd] monitor %ld raw query: %s\n", monitor.id, monitor.query.c_str());
     Serial.printf("[dd] monitor %ld chart query: %s\n", monitor.id, q.c_str());
-    outQuery = q;
     return fetchMetricSeries(q, from, to, out, err);
 }
 
@@ -1067,7 +1066,7 @@ static long long parseIso8601ToEpochSec(const String& iso) {
     return days * 86400LL + h * 3600LL + mi * 60LL + s;
 }
 
-bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery) {
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
     out.clear();
     String logQuery = extractLogSearchQuery(monitor.query);
     if (logQuery.length() == 0) { err = "no search query found in this monitor's log query"; return false; }
@@ -1092,7 +1091,6 @@ bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>
         out.push_back(p);
     }
     if (out.empty()) { err = "no data points in log aggregate response"; return false; }
-    outQuery = logQuery;
     return true;
 }
 
@@ -1112,8 +1110,8 @@ bool fetchMonitorDetailAndChart(long monitorId) {
         r.thresholdsApplicable = isRawMetricQuery(detail.query);
         String t = detail.type; t.toLowerCase();
         r.chartOk = (t == "log alert")
-            ? fetchLogMonitorChartSeries(detail, r.chart, r.err, r.chartQuery)
-            : fetchMonitorChartSeries(detail, r.chart, r.err, r.chartQuery);
+            ? fetchLogMonitorChartSeries(detail, r.chart, r.err)
+            : fetchMonitorChartSeries(detail, r.chart, r.err);
     }
     g_lastMonitorDetailResult = r;
     return r.detailOk;

@@ -584,7 +584,7 @@ void loop() {
                         m.criticalThreshold = r.criticalThreshold;
                         m.warningThreshold = r.warningThreshold;
                         m.thresholdsApplicable = r.thresholdsApplicable;
-                        ui::showMonitorDetail(m, r.chart, r.chartOk, r.err, r.chartQuery);
+                        ui::showMonitorDetail(m, r.chart, r.chartOk, r.err);
                         break;
                     }
                     case NetJobType::FetchOnCall: {
