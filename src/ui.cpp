@@ -273,17 +273,20 @@ static String    s_incidentAdvanceId;
 static lv_obj_t* s_detailScr    = nullptr;
 static lv_obj_t* s_detailName   = nullptr;
 static lv_obj_t* s_detailStatus = nullptr;
-static lv_obj_t* s_detailQuery  = nullptr;
 static lv_obj_t* s_detailChart  = nullptr;
 static lv_chart_series_t* s_detailSeries = nullptr;   // created once; see buildDetailScreenIfNeeded()
-// Mirrors the currently-plotted (decimated) values, kept around purely so
-// the tap-to-inspect handler on s_detailChart (see buildDetailScreenIfNeeded)
-// can look up a pressed point's real value by index — lv_chart itself only
-// stores the lv_coord_t-cast, already-lossy plotted values.
-static std::vector<double> s_detailChartValues;
+static lv_chart_cursor_t* s_detailCursor = nullptr;   // vertical line marking which point the labels refer to
+// Mirrors the currently-plotted (decimated) points — value AND timestamp,
+// kept around purely so the tap-to-inspect handler on s_detailChart (see
+// buildDetailScreenIfNeeded) can look up a pressed point's real value/time
+// by index. lv_chart itself only stores the lv_coord_t-cast, already-lossy
+// plotted values, and doesn't track timestamps at all.
+static std::vector<dd::MetricPoint> s_detailChartPoints;
+static String s_detailChartQuery;   // the fetched chart's actual query — see s_detailChartInfoLbl
 static lv_obj_t* s_detailChartLoLbl  = nullptr;   // y-axis min, bottom-left of chart
 static lv_obj_t* s_detailChartHiLbl  = nullptr;   // y-axis max, top-left of chart
-static lv_obj_t* s_detailCurrentLbl  = nullptr;   // latest plotted value, top-right of chart
+static lv_obj_t* s_detailCurrentLbl  = nullptr;   // highlighted point's value, top-right of chart
+static lv_obj_t* s_detailChartInfoLbl = nullptr;  // "<chart query> - HH:MM:SS" for the highlighted point
 static lv_obj_t* s_detailCritLine    = nullptr;   // horizontal reference line at options.thresholds.critical
 static lv_obj_t* s_detailWarnLine    = nullptr;   // horizontal reference line at options.thresholds.warning
 static lv_obj_t* s_detailNoChart = nullptr;
@@ -620,6 +623,35 @@ static String formatChartValue(double v) {
     return String(v, 2);
 }
 
+// HH:MM:SS in UTC — deliberately not the 12h/24h user preference main.cpp's
+// clock uses (ui.cpp has no reason to depend on storage.h just for this one
+// secondary display), and UTC rather than local time since MetricPoint::
+// tsSec is a bare UTC epoch with no timezone context attached.
+static String formatPointTime(uint32_t tsSec) {
+    if (tsSec == 0) return "";
+    time_t t = (time_t)tsSec;
+    struct tm tmu; gmtime_r(&t, &tmu);
+    char buf[10];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmu.tm_hour, tmu.tm_min, tmu.tm_sec);
+    return String(buf);
+}
+
+// Shared by showMonitorDetail() (defaults to the latest point) and the
+// tap-to-inspect handler on s_detailChart (see buildDetailScreenIfNeeded) —
+// updates the value label, the "<query> - HH:MM:SS" info line, and snaps the
+// vertical cursor line to the given point, so there's always a clear visual
+// answer to "what data point am I looking at", not just a bare number.
+static void updateChartHighlight(int idx) {
+    if (idx < 0 || idx >= (int)s_detailChartPoints.size()) return;
+    const dd::MetricPoint& p = s_detailChartPoints[idx];
+    lv_label_set_text(s_detailCurrentLbl, formatChartValue(p.value).c_str());
+    String info = s_detailChartQuery;
+    String t = formatPointTime(p.tsSec);
+    if (t.length()) info += " - " + t;
+    lv_label_set_text(s_detailChartInfoLbl, info.c_str());
+    if (s_detailCursor) lv_chart_set_cursor_point(s_detailChart, s_detailCursor, s_detailSeries, (uint16_t)idx);
+}
+
 void ui::notifyMonitorCountsRefreshed() {
     const dd::MonitorCounts& c = dd::lastMonitorCounts();
     if (s_ovMonitorBadge) {
@@ -933,20 +965,26 @@ static void buildDetailScreenIfNeeded() {
     // healthy, unfragmented pool per lv_mem_monitor() — root cause not fully
     // chased down, but avoiding the call entirely sidesteps it).
     s_detailSeries = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
+    // Vertical cursor line — the only way to show "which point" the value/
+    // info labels refer to; lv_chart has no built-in tooltip in LVGL 8.4.
+    // Snapped to a point via updateChartHighlight(), never removed/re-added
+    // (see the comment above about why churning chart objects is dangerous
+    // on this LVGL version).
+    s_detailCursor = lv_chart_add_cursor(s_detailChart, COLOR_INK, LV_DIR_VER);
     // Tap-to-inspect: LV_EVENT_VALUE_CHANGED fires whenever the pressed
     // point changes (including back to LV_CHART_POINT_NONE on release), and
     // lv_chart_get_pressed_point() gives its index — both confirmed against
     // the installed lv_chart.c (LVGL 8.4 has no built-in tooltip, just this
-    // event + getter). Repurposes the "current value" label: shows the
-    // tapped point's value while held, reverts to the latest value on
-    // release.
+    // event + getter). Reverts to highlighting the latest point on release,
+    // so the cursor/value/info line always has an answer, not just while
+    // actively touching the chart.
     lv_obj_add_event_cb(s_detailChart, [](lv_event_t* e) {
         lv_obj_t* chart = lv_event_get_target(e);
         uint32_t idx = lv_chart_get_pressed_point(chart);
-        if (idx != LV_CHART_POINT_NONE && idx < s_detailChartValues.size()) {
-            lv_label_set_text(s_detailCurrentLbl, formatChartValue(s_detailChartValues[idx]).c_str());
-        } else if (!s_detailChartValues.empty()) {
-            lv_label_set_text(s_detailCurrentLbl, formatChartValue(s_detailChartValues.back()).c_str());
+        if (idx != LV_CHART_POINT_NONE) {
+            updateChartHighlight((int)idx);
+        } else if (!s_detailChartPoints.empty()) {
+            updateChartHighlight((int)s_detailChartPoints.size() - 1);
         }
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
@@ -1006,15 +1044,19 @@ static void buildDetailScreenIfNeeded() {
     lv_obj_set_style_text_align(s_detailNoChart, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
 
-    // Query gets its own full-width row now that the action bar below is a
-    // 3-button row rather than one button sharing this line — that's what
-    // let a long query run straight into "HOLD: MUTE" before.
-    s_detailQuery = lv_label_create(s_detailScr);
-    lv_obj_set_style_text_font(s_detailQuery, &outfit_thin_12, 0);
-    lv_obj_set_style_text_color(s_detailQuery, COLOR_MUTED, 0);
-    lv_obj_set_size(s_detailQuery, SCREEN_WIDTH - 24, 18);
-    lv_label_set_long_mode(s_detailQuery, LV_LABEL_LONG_DOT);
-    lv_obj_set_pos(s_detailQuery, 12, 172);
+    // Replaces the old full raw-query row — that told you almost nothing
+    // useful at a glance ("avg(last_4h):anomalies(avg:trace.http.request..."
+    // isn't legible truncated to one line) and ate the vertical space this
+    // "what is this number / when is this point" line needs instead. Text
+    // set in showMonitorDetail(): "<chart's actual query, truncated> - HH:MM:SS"
+    // for whichever point is currently highlighted (tapped, or the latest
+    // point by default — see the cursor/tap handler below).
+    s_detailChartInfoLbl = lv_label_create(s_detailScr);
+    lv_obj_set_style_text_font(s_detailChartInfoLbl, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_detailChartInfoLbl, COLOR_MUTED, 0);
+    lv_obj_set_size(s_detailChartInfoLbl, SCREEN_WIDTH - 24, 18);
+    lv_label_set_long_mode(s_detailChartInfoLbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(s_detailChartInfoLbl, 12, 172);
 
     // Action bar: 3 equal slots — Mute/Unmute (state-aware), Declare, Bits.
     // All navigate to a confirm/options screen on tap (the navigation itself
@@ -1396,7 +1438,7 @@ void ui::showMonitorDetailLoading(const dd::Monitor& cached) {
     lv_label_set_text(s_detailName, cached.name.c_str());
     lv_label_set_text(s_detailStatus, cached.status.c_str());
     lv_obj_set_style_text_color(s_detailStatus, statusColor(cached.status), 0);
-    lv_label_set_text(s_detailQuery, cached.query.c_str());
+    lv_label_set_text(s_detailChartInfoLbl, "");
     lv_label_set_text(s_detailMuteResult, "");
     updateMuteActionBar(cached.muted);
 
@@ -1409,14 +1451,13 @@ void ui::showMonitorDetailLoading(const dd::Monitor& cached) {
 }
 
 void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::MetricPoint>& sparkline,
-                           bool sparklineOk, const String& chartError) {
+                           bool sparklineOk, const String& chartError, const String& chartQuery) {
     buildDetailScreenIfNeeded();
     s_detailMonitorId = detail.id;
 
     lv_label_set_text(s_detailName, detail.name.c_str());
     lv_label_set_text(s_detailStatus, detail.status.c_str());
     lv_obj_set_style_text_color(s_detailStatus, statusColor(detail.status), 0);
-    lv_label_set_text(s_detailQuery, detail.query.c_str());
     lv_label_set_text(s_detailMuteResult, "");
     updateMuteActionBar(detail.muted);
 
@@ -1426,17 +1467,20 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         lv_obj_clear_flag(s_detailChartHiLbl, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailChartLoLbl, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailCurrentLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_detailChartInfoLbl, LV_OBJ_FLAG_HIDDEN);
 
         // Decimate to ~40 points (BARKBOARD_PLAN.md §4) to keep the LVGL
-        // pool happy regardless of how many raw points came back.
+        // pool happy regardless of how many raw points came back. Keeps the
+        // full MetricPoint (value + tsSec), not just the value, so tap-to-
+        // inspect can show a real timestamp per point.
         const int MAX_POINTS = 40;
         int n = (int)sparkline.size();
         int stride = (n > MAX_POINTS) ? (n / MAX_POINTS) : 1;
-        std::vector<double> decimated;
-        for (int i = 0; i < n; i += stride) decimated.push_back(sparkline[i].value);
+        std::vector<dd::MetricPoint> decimated;
+        for (int i = 0; i < n; i += stride) decimated.push_back(sparkline[i]);
 
-        double lo = decimated[0], hi = decimated[0];
-        for (double v : decimated) { if (v < lo) lo = v; if (v > hi) hi = v; }
+        double lo = decimated[0].value, hi = decimated[0].value;
+        for (const dd::MetricPoint& p : decimated) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
         // Widen the range slightly to fit critical/warning threshold lines
         // that sit just outside the data's own min/max, so they aren't
         // clipped flush against the chart's top/bottom edge.
@@ -1455,12 +1499,13 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
 
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)rangeLo, (lv_coord_t)rangeHi);
-        for (double v : decimated) lv_chart_set_next_value(s_detailChart, s_detailSeries, (lv_coord_t)v);
-        s_detailChartValues = decimated;   // tap-to-inspect reads this — see buildDetailScreenIfNeeded()
+        for (const dd::MetricPoint& p : decimated) lv_chart_set_next_value(s_detailChart, s_detailSeries, (lv_coord_t)p.value);
+        s_detailChartPoints = decimated;   // tap-to-inspect reads this — see buildDetailScreenIfNeeded()
+        s_detailChartQuery = chartQuery;
 
         lv_label_set_text(s_detailChartHiLbl, formatChartValue(hi).c_str());
         lv_label_set_text(s_detailChartLoLbl, formatChartValue(lo).c_str());
-        lv_label_set_text(s_detailCurrentLbl, formatChartValue(decimated.back()).c_str());
+        updateChartHighlight((int)decimated.size() - 1);   // default: highlight the latest point
 
         // Threshold reference lines — position within the chart's own 100px
         // plot area (y 64..164) by linear-interpolating the threshold value
@@ -1481,12 +1526,15 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         positionThresholdLine(s_detailCritLine, detail.criticalThreshold);
         positionThresholdLine(s_detailWarnLine, detail.warningThreshold);
     } else {
-        s_detailChartValues.clear();
+        s_detailChartPoints.clear();
+        s_detailChartQuery = "";
+        if (s_detailCursor) lv_chart_set_cursor_point(s_detailChart, s_detailCursor, s_detailSeries, LV_CHART_POINT_NONE);
         lv_obj_add_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailChartHiLbl, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailChartLoLbl, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailCurrentLbl, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detailChartInfoLbl, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailCritLine, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detailWarnLine, LV_OBJ_FLAG_HIDDEN);
         // Show the real reason, not a blanket claim — many "no chart"

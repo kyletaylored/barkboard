@@ -167,6 +167,11 @@ struct MonitorDetailResult {
     double criticalThreshold = NAN;
     double warningThreshold  = NAN;
     bool   thresholdsApplicable = false;
+    // The actual query sent to fetch `chart` (metric query for /api/v1/query,
+    // or the log search string for the Logs Aggregate path) — distinct from
+    // Monitor::query (the raw, unstripped evaluation expression). Shown on
+    // Monitor Detail as the "what is this chart measuring" context.
+    String chartQuery;
 };
 bool fetchMonitorDetailAndChart(long monitorId);
 const MonitorDetailResult& lastMonitorDetailResult();
@@ -259,14 +264,17 @@ bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEp
 // fetchMetricSeries() to grab an arbitrary one of however many distinct
 // tag values exist — confirmed live that's not necessarily the one that
 // alerted at all.
-bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
+// outQuery receives the actual query sent to /api/v1/query (after stripping
+// the evaluation envelope and scoping to a group) — see MonitorDetailResult::
+// chartQuery's doc comment for why this is captured at all.
+bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery);
 
 // Equivalent chart source for "log alert" monitors, which have no metrics
 // query at all (fetchMonitorChartSeries() correctly refuses these). Pulls a
 // log-count timeseries from the Logs Aggregate API instead, over the same
 // alert-anchored window. Only called for monitor.type == "log alert"; see
 // the dispatch in fetchMonitorDetailAndChart().
-bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err);
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery);
 
 // ---- Declare: Case / Incident (Monitor Detail action bar) ----
 

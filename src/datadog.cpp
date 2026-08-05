@@ -958,7 +958,7 @@ static void computeChartWindow(long monitorId, uint32_t& from, uint32_t& to, std
     }
 }
 
-bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery) {
     out.clear();
     if (!isChartableMonitorType(monitor.type)) {
         err = monitor.type.length()
@@ -1001,6 +1001,7 @@ bool fetchMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& o
     }
     Serial.printf("[dd] monitor %ld raw query: %s\n", monitor.id, monitor.query.c_str());
     Serial.printf("[dd] monitor %ld chart query: %s\n", monitor.id, q.c_str());
+    outQuery = q;
     return fetchMetricSeries(q, from, to, out, err);
 }
 
@@ -1047,7 +1048,26 @@ static String extractLogSearchQuery(const String& raw) {
 // compute index — "c0" for the single, unnamed compute below — whose value
 // is an array of {time, value} points when type=timeseries, not a single
 // number as it would be for type=total).
-bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err) {
+// Datadog's Logs Aggregate API returns each timeseries point's time as an
+// RFC3339/ISO8601 string ("2024-01-01T00:00:00.000Z"), unlike /api/v1/query's
+// epoch-ms number — needed now that Monitor Detail's tap-to-inspect shows a
+// point's timestamp. Howard Hinnant's days-from-civil algorithm (proleptic
+// Gregorian, UTC) rather than mktime()/timegm() — avoids any local-timezone
+// ambiguity, and this format is fixed/predictable enough that a full RFC3339
+// parser isn't needed.
+static long long parseIso8601ToEpochSec(const String& iso) {
+    int y, mo, d, h, mi, s;
+    if (sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s) != 6) return 0;
+    long long yy = y - (mo <= 2 ? 1 : 0);
+    long long era = (yy >= 0 ? yy : yy - 399) / 400;
+    unsigned yoe = (unsigned)(yy - era * 400);
+    unsigned doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    long long days = era * 146097 + (long long)doe - 719468;
+    return days * 86400LL + h * 3600LL + mi * 60LL + s;
+}
+
+bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>& out, String& err, String& outQuery) {
     out.clear();
     String logQuery = extractLogSearchQuery(monitor.query);
     if (logQuery.length() == 0) { err = "no search query found in this monitor's log query"; return false; }
@@ -1067,15 +1087,12 @@ bool fetchLogMonitorChartSeries(const Monitor& monitor, std::vector<MetricPoint>
     if (buckets.size() == 0) { err = "no buckets returned"; return false; }
     for (JsonVariant pt : buckets[0]["computes"]["c0"].as<JsonArray>()) {
         MetricPoint p;
-        // Timestamp is an ISO8601 string here (unlike /api/v1/query's epoch-
-        // ms number) — not parsed since nothing downstream reads
-        // MetricPoint::tsSec for chart rendering (index-based decimation
-        // only; see ui::showMonitorDetail()), and adding an ISO8601 parser
-        // for a value nothing consumes isn't worth the code.
+        p.tsSec = (uint32_t)parseIso8601ToEpochSec(pt["time"] | "");
         p.value = pt["value"] | 0.0;
         out.push_back(p);
     }
     if (out.empty()) { err = "no data points in log aggregate response"; return false; }
+    outQuery = logQuery;
     return true;
 }
 
@@ -1095,8 +1112,8 @@ bool fetchMonitorDetailAndChart(long monitorId) {
         r.thresholdsApplicable = isRawMetricQuery(detail.query);
         String t = detail.type; t.toLowerCase();
         r.chartOk = (t == "log alert")
-            ? fetchLogMonitorChartSeries(detail, r.chart, r.err)
-            : fetchMonitorChartSeries(detail, r.chart, r.err);
+            ? fetchLogMonitorChartSeries(detail, r.chart, r.err, r.chartQuery)
+            : fetchMonitorChartSeries(detail, r.chart, r.err, r.chartQuery);
     }
     g_lastMonitorDetailResult = r;
     return r.detailOk;

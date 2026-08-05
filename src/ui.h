@@ -58,7 +58,7 @@ namespace ui {
     // metrics-query syntax on its own, not because "this monitor type never
     // charts".
     void showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::MetricPoint>& sparkline,
-                           bool sparklineOk, const String& chartError);
+                           bool sparklineOk, const String& chartError, const String& chartQuery);
     // outUntilEpochSec==0 is the sentinel for "unmute now" (see the Mute
     // 1h / Mute Today / Unmute action bar on Monitor Detail); any nonzero
     // value is a real mute-until epoch.
