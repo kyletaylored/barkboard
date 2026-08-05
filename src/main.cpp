@@ -455,6 +455,7 @@ void loop() {
     if (millis() % 1000 < 5) Serial.printf("[loop] alive @ %lu\n", millis());
 
     netcfg::process();
+    if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-netcfg");
 
     // Drain UI updates queued by the WiFi task (core 0).
     if (g_uiPortalDirty || g_uiStatusDirty) {
@@ -473,6 +474,7 @@ void loop() {
     }
 
     display::tick();
+    if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-tick1");
 
     if (netcfg::isConnected()) {
         if (!wasConnected) {
@@ -512,7 +514,9 @@ void loop() {
             ui::showOverview();
             ui::setStatusOnline(true);
         }
+        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: pre-portal");
         portal::loop();
+        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: post-portal");
 
         // Clock tick — once per 30s update HH:MM. Format (12h/24h) is a
         // Settings-page preference; still UTC (no timezone picker yet —
@@ -531,6 +535,7 @@ void loop() {
             }
         }
 
+        if (millis() % 1000 < 5) Serial.println("[loop] ckpt: pre-netjob-check");
         // Drain netTask()'s (core 0) job status — ambient poll, Monitor
         // Detail, and On-Call all land here now instead of blocking this
         // loop directly (see the NetJobStatus/netTask() comment above
