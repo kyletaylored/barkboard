@@ -1302,7 +1302,9 @@ void ui::showMonitorDetailLoading(const dd::Monitor& cached) {
 
 void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::MetricPoint>& sparkline,
                            bool sparklineOk, const String& chartError) {
+    Serial.println("[ui] ckpt: showMonitorDetail enter");
     buildDetailScreenIfNeeded();
+    Serial.println("[ui] ckpt: post-buildDetailScreenIfNeeded");
     s_detailMonitorId = detail.id;
 
     lv_label_set_text(s_detailName, detail.name.c_str());
@@ -1311,6 +1313,7 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
     lv_label_set_text(s_detailQuery, detail.query.c_str());
     lv_label_set_text(s_detailMuteResult, "");
     updateMuteActionBar(detail.muted);
+    Serial.println("[ui] ckpt: post-labels");
 
     if (sparklineOk && sparkline.size() >= 2) {
         lv_obj_clear_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
@@ -1323,16 +1326,21 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         int stride = (n > MAX_POINTS) ? (n / MAX_POINTS) : 1;
         std::vector<double> decimated;
         for (int i = 0; i < n; i += stride) decimated.push_back(sparkline[i].value);
+        Serial.printf("[ui] ckpt: post-decimate n=%d stride=%d decimated=%u\n", n, stride, (unsigned)decimated.size());
 
         double lo = decimated[0], hi = decimated[0];
         for (double v : decimated) { if (v < lo) lo = v; if (v > hi) hi = v; }
         if (lo == hi) { lo -= 1; hi += 1; }
 
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
+        Serial.println("[ui] ckpt: post-set_point_count");
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)lo, (lv_coord_t)hi);
         lv_chart_remove_series(s_detailChart, lv_chart_get_series_next(s_detailChart, nullptr));
+        Serial.println("[ui] ckpt: post-remove_series");
         lv_chart_series_t* ser = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
+        Serial.println("[ui] ckpt: post-add_series");
         for (double v : decimated) lv_chart_set_next_value(s_detailChart, ser, (lv_coord_t)v);
+        Serial.println("[ui] ckpt: post-set_next_value loop");
     } else {
         lv_obj_add_flag(s_detailChart, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detailNoChart, LV_OBJ_FLAG_HIDDEN);
@@ -1346,7 +1354,9 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
     }
 
     s_screen = ui::Screen::MonitorDetail;
+    Serial.println("[ui] ckpt: pre-scr_load_anim");
     lv_scr_load_anim(s_detailScr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
+    Serial.println("[ui] ckpt: post-scr_load_anim");
 }
 
 void ui::applyMuteResult(bool ok, const String& msg) {
