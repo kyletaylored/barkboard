@@ -313,5 +313,6 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 // single resolved team id.
 bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
                                          std::vector<BitsInvestigation>& out, String& err);
+const std::vector<BitsInvestigation>& lastBitsInvestigations();
 
 }

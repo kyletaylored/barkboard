@@ -190,8 +190,8 @@ void ui::showWaitingForKeys(const String& portalUrl) {
 // phases 5+7); SLOs slot into DASH_COUNT in phase 8.
 // ============================================================================
 
-enum DashIdx { DASH_OVERVIEW = 0, DASH_MONITORS, DASH_INCIDENTS, DASH_ONCALL, DASH_SLO, DASH_COUNT };
-static const char* const DASH_TITLE[DASH_COUNT] = { "OVERVIEW", "MONITORS", "INCIDENTS", "ON-CALL", "SLOS" };
+enum DashIdx { DASH_OVERVIEW = 0, DASH_MONITORS, DASH_INCIDENTS, DASH_ONCALL, DASH_SLO, DASH_BITS, DASH_COUNT };
+static const char* const DASH_TITLE[DASH_COUNT] = { "OVERVIEW", "MONITORS", "INCIDENTS", "ON-CALL", "SLOS", "BITS" };
 
 static bool      s_dashBuilt = false;
 static lv_obj_t* s_dashScr[DASH_COUNT] = { nullptr };
@@ -244,6 +244,10 @@ static volatile bool s_oncallFetchPending = false;
 // SLO widgets
 static lv_obj_t* s_sloList = nullptr;
 static volatile bool s_sloFetchPending = false;
+
+// Bits Investigations widgets
+static lv_obj_t* s_bitsInvList = nullptr;
+static volatile bool s_bitsInvestigationsFetchPending = false;
 
 // SLO Detail
 static lv_obj_t* s_sloDetailScr   = nullptr;
@@ -1089,9 +1093,19 @@ static void buildDetailScreenIfNeeded() {
     // Above the action bar now, not below it — the buttons sit at the
     // bottom of the screen (see ACTION_BAR_Y), so there's no room left
     // under them.
+    // Bold, not thin — this is the only feedback the user gets after Mute/
+    // Declare/Bits actions (all of which navigate straight back to this
+    // screen optimistically, before their async API call even finishes; see
+    // backToDetail()'s doc comment), and the thin 12px muted-color text this
+    // used to be was easy to miss entirely, especially on this panel's
+    // documented dim/off-axis legibility issues. Explicit width + LONG_DOT
+    // truncation instead of wrap — ACTION_BAR_Y leaves too little vertical
+    // room below this line to wrap a long message without overlapping it.
     s_detailMuteResult = lv_label_create(s_detailScr);
-    lv_obj_set_style_text_font(s_detailMuteResult, &outfit_thin_12, 0);
-    lv_obj_set_pos(s_detailMuteResult, 12, 189);
+    lv_obj_set_style_text_font(s_detailMuteResult, &outfit_bold_12, 0);
+    lv_obj_set_size(s_detailMuteResult, SCREEN_WIDTH - 24, 16);
+    lv_label_set_long_mode(s_detailMuteResult, LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(s_detailMuteResult, 12, 187);
 }
 
 // Swaps the Mute-slot's icon/text/color between "Mute" (unmuted — tap opens
@@ -1692,6 +1706,61 @@ bool ui::sloDetailRequestPending(String& outId) {
     return true;
 }
 
+// ---- Bits Investigations ----
+// No detail drill-in yet (BitsInvestigation only carries id/title/status —
+// see its doc comment in datadog.h for why nothing richer is available from
+// the list endpoint) and no click handler, same as On-Call's rows.
+
+static lv_color_t bitsStatusColor(const String& status) {
+    String s = status; s.toLowerCase();
+    if (s.indexOf("fail") >= 0 || s.indexOf("error") >= 0) return COLOR_ALERT;
+    if (s.indexOf("progress") >= 0 || s.indexOf("running") >= 0 || s.indexOf("pending") >= 0) return COLOR_WARN;
+    return COLOR_OK;
+}
+
+static void buildBitsInvestigations() {
+    lv_obj_t* s = s_dashScr[DASH_BITS];
+    s_bitsInvList = lv_list_create(s);
+    lv_obj_set_size(s_bitsInvList, LIST_WIDTH, SCREEN_HEIGHT - 24 - 24 - 12);
+    lv_obj_set_pos(s_bitsInvList, LIST_INSET, 30);
+    lv_obj_set_style_bg_opa(s_bitsInvList, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_bitsInvList, 0, 0);
+    lv_obj_set_style_pad_all(s_bitsInvList, 0, 0);
+    lv_obj_add_flag(s_bitsInvList, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    lv_obj_t* empty = lv_label_create(s_bitsInvList);
+    lv_obj_set_style_text_font(empty, &outfit_thin_14, 0);
+    lv_obj_set_style_text_color(empty, COLOR_MUTED, 0);
+    lv_label_set_text(empty, "Loading investigations...");
+}
+
+void ui::notifyBitsInvestigationsRefreshed() {
+    if (!s_bitsInvList) return;
+    lv_obj_clean(s_bitsInvList);
+
+    const std::vector<dd::BitsInvestigation>& investigations = dd::lastBitsInvestigations();
+    if (investigations.empty()) {
+        lv_obj_t* empty = lv_label_create(s_bitsInvList);
+        lv_obj_set_style_text_font(empty, &outfit_thin_14, 0);
+        lv_obj_set_style_text_color(empty, COLOR_MUTED, 0);
+        lv_label_set_text(empty, "No investigations yet.\nTrigger one from a monitor's detail screen.");
+        return;
+    }
+
+    for (const dd::BitsInvestigation& inv : investigations) {
+        buildTableRow(s_bitsInvList, true, bitsStatusColor(inv.status), inv.title, inv.status);
+    }
+}
+
+bool ui::bitsInvestigationsFetchPending() {
+    if (!s_bitsInvestigationsFetchPending) return false;
+    portENTER_CRITICAL(&s_pendingMux);
+    bool hit = s_bitsInvestigationsFetchPending;
+    s_bitsInvestigationsFetchPending = false;
+    portEXIT_CRITICAL(&s_pendingMux);
+    return hit;
+}
+
 static void buildSloDetailIfNeeded() {
     if (s_sloDetailScr) return;
     s_sloDetailScr = lv_obj_create(nullptr);
@@ -2124,7 +2193,7 @@ static void rotateTo(int idx, bool /*fromUser*/) {
 
     bool onDash = (s_screen == ui::Screen::Overview || s_screen == ui::Screen::Monitors ||
                    s_screen == ui::Screen::Incidents || s_screen == ui::Screen::OnCall ||
-                   s_screen == ui::Screen::Slo);
+                   s_screen == ui::Screen::Slo || s_screen == ui::Screen::Bits);
     if (!onDash) {
         lv_scr_load_anim(s_dashScr[idx], LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     } else {
@@ -2133,7 +2202,7 @@ static void rotateTo(int idx, bool /*fromUser*/) {
     }
     s_dashIdx = idx;
     static const ui::Screen SCR_FOR_IDX[DASH_COUNT] = {
-        ui::Screen::Overview, ui::Screen::Monitors, ui::Screen::Incidents, ui::Screen::OnCall, ui::Screen::Slo
+        ui::Screen::Overview, ui::Screen::Monitors, ui::Screen::Incidents, ui::Screen::OnCall, ui::Screen::Slo, ui::Screen::Bits
     };
     s_screen = SCR_FOR_IDX[idx];
 
@@ -2153,6 +2222,11 @@ static void rotateTo(int idx, bool /*fromUser*/) {
         s_sloFetchPending = true;
         portEXIT_CRITICAL(&s_pendingMux);
     }
+    if (idx == DASH_BITS) {
+        portENTER_CRITICAL(&s_pendingMux);
+        s_bitsInvestigationsFetchPending = true;
+        portEXIT_CRITICAL(&s_pendingMux);
+    }
 }
 
 static void onDashGesture(lv_event_t*) {
@@ -2170,6 +2244,7 @@ static void buildDashboard() {
     buildIncidents();
     buildOnCall();
     buildSlos();
+    buildBitsInvestigations();
     // Added last so they sit on top in z-order — see the comment in
     // makeDashScreen() for why that ordering matters here.
     for (int i = 0; i < DASH_COUNT; ++i) addNavArrows(s_dashScr[i], i);

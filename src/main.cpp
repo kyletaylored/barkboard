@@ -234,7 +234,7 @@ static void onWiFiStatus(const String& msg) {
 // needed cross-core caches this device's DRAM budget doesn't have (see
 // CLAUDE.md build history; verified precisely via compiler size probes
 // while building this).
-enum class NetJobType { None, PollAmbient, MonitorDetail, FetchOnCall, FetchMonitors, FetchIncidents, FetchSlos };
+enum class NetJobType { None, PollAmbient, MonitorDetail, FetchOnCall, FetchMonitors, FetchIncidents, FetchSlos, FetchBitsInvestigations };
 
 struct NetJobStatus {
     NetJobType type = NetJobType::None;
@@ -377,6 +377,25 @@ static void netTask(void*) {
                 String serr;
                 dd::fetchSlos(slos, serr);
                 netJobDone(NetJobType::FetchSlos, true);
+            }
+
+            if (ui::bitsInvestigationsFetchPending()) {
+                netJobRunning(NetJobType::FetchBitsInvestigations);
+                // The Bits API only supports filtering by one monitor_id at
+                // a time (see fetchBitsInvestigationsForMonitors()'s doc
+                // comment) — capped to the first 8 of the already-cached,
+                // already-team-scoped monitor list to bound this to at most
+                // 8 sequential HTTP round trips rather than one per monitor
+                // in the whole org.
+                std::vector<long> monitorIds;
+                for (const dd::Monitor& m : dd::lastMonitors()) {
+                    monitorIds.push_back(m.id);
+                    if (monitorIds.size() >= 8) break;
+                }
+                std::vector<dd::BitsInvestigation> investigations;
+                String bierr;
+                dd::fetchBitsInvestigationsForMonitors(monitorIds, investigations, bierr);
+                netJobDone(NetJobType::FetchBitsInvestigations, true);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(5));
@@ -538,6 +557,7 @@ void loop() {
                     case NetJobType::FetchMonitors:  ui::showBusy("Loading monitors...");  break;
                     case NetJobType::FetchIncidents: ui::showBusy("Loading incidents..."); break;
                     case NetJobType::FetchSlos:      ui::showBusy("Loading SLOs...");      break;
+                    case NetJobType::FetchBitsInvestigations: ui::showBusy("Loading investigations..."); break;
                     default: break;
                 }
             }
@@ -584,6 +604,10 @@ void loop() {
                     case NetJobType::FetchSlos:
                         ui::hideBusy();
                         ui::notifySlosRefreshed();
+                        break;
+                    case NetJobType::FetchBitsInvestigations:
+                        ui::hideBusy();
+                        ui::notifyBitsInvestigationsRefreshed();
                         break;
                     default: break;
                 }

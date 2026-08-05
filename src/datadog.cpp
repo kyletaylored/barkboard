@@ -1208,6 +1208,9 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
     return true;
 }
 
+static std::vector<BitsInvestigation> g_lastBitsInvestigations;
+const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBitsInvestigations; }
+
 bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
                                          std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
@@ -1233,9 +1236,10 @@ bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
             inv.title  = item["attributes"]["title"]  | "";
             inv.status = item["attributes"]["status"] | "";
             out.push_back(inv);
-            if ((int)out.size() >= 14) return true;   // same LVGL-pool-protecting cap as other lists
+            if ((int)out.size() >= 14) { g_lastBitsInvestigations = out; return true; }   // same LVGL-pool-protecting cap as other lists
         }
     }
+    g_lastBitsInvestigations = out;
     return true;
 }
 

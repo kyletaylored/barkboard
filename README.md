@@ -54,15 +54,16 @@ A **"Forget WiFi & keys"** button on the same setup page resets everything and r
 
 ## Screens
 
-Five rotating dashboards (swipe or tap the page dots), plus drill-in detail views:
+Six rotating dashboards (swipe or tap the page dots), plus drill-in detail views:
 
 | Screen        | What's on it                                                                                                                      |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **Overview**  | Big ALERT/WARN/OK monitor counts, open incident count + highest severity                                                          |
-| **Monitors**  | Filterable list; tap a row for detail — live metric sparkline, mute/unmute, declare a case/incident, trigger a Bits investigation |
+| **Monitors**  | Filterable list; tap a row for detail — live metric/log-count chart with threshold lines, mute/unmute, declare a case/incident, trigger a Bits investigation |
 | **Incidents** | Active incidents with SEV-1..5 badges; tap for detail and to cycle incident state                                                 |
 | **On-Call**   | Current on-call + escalation roster for your team, auto-detected from your API key                                                |
 | **SLOs**      | Configured SLOs; tap one for an arc gauge showing remaining error budget                                                          |
+| **Bits**      | Recent Bits AI Investigations and their status, across your visible monitors                                                     |
 
 Plus a Settings screen (WiFi/site info, re-detect tenant, factory reset) and an animated idle screen.
 
