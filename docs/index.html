@@ -113,6 +113,38 @@
     background:#0a0a0f;border:1px solid var(--border);border-radius:6px;
     padding:1px 6px;font-size:13px;
   }
+  .console-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .console-btn{
+    appearance:none;border:1px solid var(--border);border-radius:10px;
+    background:var(--bg);color:var(--ink);font-weight:700;font-size:13px;
+    letter-spacing:.03em;padding:10px 18px;cursor:pointer;
+    transition:filter .15s ease, border-color .15s ease;
+  }
+  .console-btn:hover:not(:disabled){border-color:var(--purple-bg);filter:brightness(1.15)}
+  .console-btn:disabled{opacity:.4;cursor:not-allowed}
+  .console-btn.primary{
+    background:linear-gradient(180deg,var(--purple-bg),var(--purple));
+    border-color:transparent;color:#fff;
+  }
+  .console-status{font-size:13px;color:var(--ink-muted);margin-left:auto}
+  .console-status .lit{color:var(--ok)}
+  .console-status .warn{color:var(--warn)}
+  #serialOutput{
+    background:#0a0a0f;border:1px solid var(--border);border-radius:10px;
+    padding:14px 16px;height:280px;overflow-y:auto;
+    font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    font-size:12.5px;line-height:1.6;color:#c9f2c9;white-space:pre-wrap;word-break:break-all;
+  }
+  #serialOutput .line-err{color:var(--alert)}
+  #serialOutput .line-sys{color:var(--ink-muted);font-style:italic}
+  #serialOutput::-webkit-scrollbar{width:10px}
+  #serialOutput::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+  .serial-unsupported{
+    display:none;margin-top:14px;padding:12px 14px;border-radius:10px;
+    background:#3a1620;color:#ffb6bb;border:1px solid #5a1d2a;font-size:14px;
+  }
+  body.no-webserial .serial-unsupported{display:block}
+  body.no-webserial .console-row,body.no-webserial #serialOutput{display:none}
 </style>
 </head>
 <body>
@@ -137,6 +169,27 @@
       Your browser doesn't support WebSerial. Use desktop <b>Chrome</b> or
       <b>Edge</b> (WebSerial isn't available on Firefox, Safari, or mobile
       browsers).
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Serial console</h2>
+    <div class="console-row">
+      <button id="serialConnectBtn" class="console-btn primary" type="button">Connect</button>
+      <button id="serialDisconnectBtn" class="console-btn" type="button" disabled>Disconnect</button>
+      <button id="serialClearBtn" class="console-btn" type="button">Clear</button>
+      <span class="console-status" id="serialStatus">Not connected.</span>
+    </div>
+    <pre id="serialOutput" aria-live="polite"></pre>
+    <p class="unsupported-note serial-unsupported">
+      Your browser doesn't support WebSerial. Use desktop <b>Chrome</b> or
+      <b>Edge</b> (WebSerial isn't available on Firefox, Safari, or mobile
+      browsers) to watch the board's boot/status log here.
+    </p>
+    <p style="color:var(--ink-muted);font-size:13px;margin:12px 0 0">
+      Pick the same serial port you flashed with — this streams the board's
+      <code>Serial.print</code> output at 115200 baud, useful for watching
+      WiFi/portal/API status without a separate terminal app.
     </p>
   </div>
 
@@ -199,5 +252,105 @@
     Flashing here is powered by <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a>.
   </footer>
 </div>
+<script>
+(function () {
+  var connectBtn = document.getElementById('serialConnectBtn');
+  var disconnectBtn = document.getElementById('serialDisconnectBtn');
+  var clearBtn = document.getElementById('serialClearBtn');
+  var statusEl = document.getElementById('serialStatus');
+  var outputEl = document.getElementById('serialOutput');
+
+  if (!('serial' in navigator)) {
+    document.body.classList.add('no-webserial');
+    return;
+  }
+
+  var port = null;
+  var reader = null;
+  var keepReading = false;
+  var readClosed = Promise.resolve();
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = 'console-status' + (cls ? ' ' + cls : '');
+  }
+
+  function appendLine(text, kind) {
+    var span = document.createElement('span');
+    if (kind) span.className = kind;
+    span.textContent = text;
+    outputEl.appendChild(span);
+    outputEl.scrollTop = outputEl.scrollHeight;
+  }
+
+  async function readLoop() {
+    var decoder = new TextDecoder();
+    try {
+      while (port.readable && keepReading) {
+        reader = port.readable.getReader();
+        try {
+          while (true) {
+            var chunk = await reader.read();
+            if (chunk.done) break;
+            appendLine(decoder.decode(chunk.value));
+          }
+        } catch (readErr) {
+          appendLine('\n[serial read error: ' + readErr + ']\n', 'line-err');
+        } finally {
+          reader.releaseLock();
+          reader = null;
+        }
+      }
+    } finally {
+      // loop exits when keepReading goes false or the port drops
+    }
+  }
+
+  async function connectSerial() {
+    try {
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      keepReading = true;
+      connectBtn.disabled = true;
+      disconnectBtn.disabled = false;
+      setStatus('Connected — streaming at 115200 baud.', 'lit');
+      appendLine('[connected]\n', 'line-sys');
+      readClosed = readLoop();
+    } catch (err) {
+      setStatus('Connection failed: ' + err, 'warn');
+    }
+  }
+
+  async function disconnectSerial() {
+    keepReading = false;
+    try {
+      if (reader) await reader.cancel();
+    } catch (e) { /* ignore */ }
+    await readClosed;
+    try {
+      if (port) await port.close();
+    } catch (e) { /* ignore */ }
+    port = null;
+    connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
+    setStatus('Disconnected.');
+    appendLine('[disconnected]\n', 'line-sys');
+  }
+
+  connectBtn.addEventListener('click', function () {
+    connectSerial();
+  });
+  disconnectBtn.addEventListener('click', function () {
+    disconnectSerial();
+  });
+  clearBtn.addEventListener('click', function () {
+    outputEl.textContent = '';
+  });
+
+  window.addEventListener('beforeunload', function () {
+    if (port) disconnectSerial();
+  });
+})();
+</script>
 </body>
 </html>
