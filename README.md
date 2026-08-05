@@ -34,10 +34,9 @@ make flash PORT=/dev/cu.usbserial-1420
 ```
 
 > [!TIP] Other useful targets
-> - `make monitor` (serial monitor only)
-> - `make erase-flash` (wipe the whole flash chip for a clean-slate test)
-> - `make reflash` (erase + upload + monitor in one go)
->
+> `make monitor` (serial monitor only)
+> `make erase-flash` (wipe the whole flash chip for a clean-slate test)
+> `make reflash` (erase + upload + monitor in one go)
 > Run `make help` for the full list.
 
 ## Setup
