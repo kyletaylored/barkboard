@@ -9,7 +9,7 @@
 namespace ui {
     enum class Screen {
         None, Connecting, Setup, Waiting,
-        Overview, Monitors, MonitorDetail, Incidents, OnCall, IncidentDetail, Slo, SloDetail, Settings, BitsIdle, Bits
+        Overview, Monitors, MonitorDetail, Incidents, OnCall, IncidentDetail, Slo, SloDetail, Settings, BitsIdle, Bits, BitsInvestigationDetail
     };
 
     void begin();
@@ -104,11 +104,14 @@ namespace ui {
     void showSloDetail(const dd::SloSummary& summary, const dd::SloStatus& status, bool statusOk);
 
     // Bits AI Investigations (dashboard rotation) — list reads
-    // dd::lastBitsInvestigations(), fetched per team monitor (the API only
-    // supports filtering by one monitor_id at a time; see
-    // fetchBitsInvestigationsForMonitors()'s doc comment in datadog.h).
+    // dd::lastBitsInvestigations(), one search call scoped to the team (see
+    // dd::fetchBitsInvestigations()'s doc comment for the /api/unstable/
+    // endpoint this uses and why). Tapping a row requests full detail via
+    // the documented per-id GET.
     bool bitsInvestigationsFetchPending();
     void notifyBitsInvestigationsRefreshed();
+    bool bitsInvestigationDetailRequestPending(String& outId);
+    void showBitsInvestigationDetail(const dd::BitsInvestigationDetail& detail, const String& err);
 
     // Settings (BARKBOARD_PLAN.md §4 gear-icon screen) — reachable from any
     // dashboard screen's status bar. The scope-query/time-format preferences

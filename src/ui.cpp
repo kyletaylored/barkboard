@@ -251,6 +251,15 @@ static volatile bool s_sloFetchPending = false;
 // Bits Investigations widgets
 static lv_obj_t* s_bitsInvList = nullptr;
 static volatile bool s_bitsInvestigationsFetchPending = false;
+static volatile bool s_bitsInvestigationDetailRequestPending = false;
+static String s_bitsInvestigationDetailRequestId;
+
+// Bits Investigation Detail widgets
+static lv_obj_t* s_bitsInvDetailScr = nullptr;
+static lv_obj_t* s_bitsInvDetailTitle = nullptr;
+static lv_obj_t* s_bitsInvDetailStatus = nullptr;
+static lv_obj_t* s_bitsInvDetailConclTitle = nullptr;
+static lv_obj_t* s_bitsInvDetailConclSummary = nullptr;
 
 // SLO Detail
 static lv_obj_t* s_sloDetailScr   = nullptr;
@@ -1865,15 +1874,18 @@ bool ui::sloDetailRequestPending(String& outId) {
 }
 
 // ---- Bits Investigations ----
-// No detail drill-in yet (BitsInvestigation only carries id/title/status —
-// see its doc comment in datadog.h for why nothing richer is available from
-// the list endpoint) and no click handler, same as On-Call's rows.
-
+// Real status vocabulary confirmed live (dd::fetchBitsInvestigations()'s doc
+// comment): "conclusive" is the one actually seen; "inconclusive"/"failed"/
+// "pending"/"in progress" are documented but unseen in the org this was
+// tested against, so "inconclusive" is treated as a soft-warning color
+// rather than assumed-bad, and unrecognized values fall back to WARN rather
+// than a false-confident OK.
 static lv_color_t bitsStatusColor(const String& status) {
     String s = status; s.toLowerCase();
-    if (s.indexOf("fail") >= 0 || s.indexOf("error") >= 0) return COLOR_ALERT;
-    if (s.indexOf("progress") >= 0 || s.indexOf("running") >= 0 || s.indexOf("pending") >= 0) return COLOR_WARN;
-    return COLOR_OK;
+    if (s == "conclusive") return COLOR_OK;
+    if (s == "failed") return COLOR_ALERT;
+    if (s == "inconclusive" || s == "pending" || s == "in progress") return COLOR_WARN;
+    return COLOR_WARN;
 }
 
 static void buildBitsInvestigations() {
@@ -1906,7 +1918,20 @@ void ui::notifyBitsInvestigationsRefreshed() {
     }
 
     for (const dd::BitsInvestigation& inv : investigations) {
-        buildTableRow(s_bitsInvList, true, bitsStatusColor(inv.status), inv.title, inv.status);
+        lv_obj_t* row = buildTableRow(s_bitsInvList, true, bitsStatusColor(inv.status), inv.title, inv.status);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        // Stash the investigation id (a String, too big for user_data's
+        // void*) — same heap-allocate-a-copy-and-free-on-delete pattern the
+        // Declare > Case project picker uses.
+        lv_obj_set_user_data(row, (void*)new String(inv.id));
+        lv_obj_add_event_cb(row, [](lv_event_t* e) { delete (String*)lv_obj_get_user_data(lv_event_get_target(e)); }, LV_EVENT_DELETE, nullptr);
+        lv_obj_add_event_cb(row, [](lv_event_t* e) {
+            String* id = (String*)lv_obj_get_user_data(lv_event_get_target(e));
+            portENTER_CRITICAL(&s_pendingMux);
+            s_bitsInvestigationDetailRequestId = *id;
+            s_bitsInvestigationDetailRequestPending = true;
+            portEXIT_CRITICAL(&s_pendingMux);
+        }, LV_EVENT_CLICKED, nullptr);
     }
 }
 
@@ -1917,6 +1942,88 @@ bool ui::bitsInvestigationsFetchPending() {
     s_bitsInvestigationsFetchPending = false;
     portEXIT_CRITICAL(&s_pendingMux);
     return hit;
+}
+
+bool ui::bitsInvestigationDetailRequestPending(String& outId) {
+    if (!s_bitsInvestigationDetailRequestPending) return false;
+    portENTER_CRITICAL(&s_pendingMux);
+    bool hit = s_bitsInvestigationDetailRequestPending;
+    outId = s_bitsInvestigationDetailRequestId;
+    s_bitsInvestigationDetailRequestPending = false;
+    portEXIT_CRITICAL(&s_pendingMux);
+    return hit;
+}
+
+static void buildBitsInvestigationDetailIfNeeded() {
+    if (s_bitsInvDetailScr) return;
+    s_bitsInvDetailScr = lv_obj_create(nullptr);
+    styleFullscreen(s_bitsInvDetailScr);
+    // Unlike every other detail screen, this one's content is genuinely
+    // variable-length (a real conclusion summary ran ~500 chars in testing)
+    // — re-enable vertical scrolling rather than risk overflow drawing past
+    // the action bar/screen edge.
+    lv_obj_add_flag(s_bitsInvDetailScr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(s_bitsInvDetailScr, LV_DIR_VER);
+
+    lv_obj_t* back = lv_btn_create(s_bitsInvDetailScr);
+    lv_obj_set_size(back, 44, 28);
+    lv_obj_set_pos(back, 8, 8);
+    lv_obj_set_style_bg_color(back, COLOR_SURFACE, 0);
+    lv_obj_set_style_border_width(back, 0, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t*) {
+        if (s_dashScr[DASH_BITS]) lv_scr_load_anim(s_dashScr[DASH_BITS], LV_SCR_LOAD_ANIM_MOVE_RIGHT, 200, 0, false);
+        s_screen = ui::Screen::Bits;
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* backLbl = lv_label_create(back);
+    lv_label_set_text(backLbl, LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_color(backLbl, COLOR_INK, 0);
+    lv_obj_center(backLbl);
+
+    s_bitsInvDetailStatus = lv_label_create(s_bitsInvDetailScr);
+    lv_obj_set_style_text_font(s_bitsInvDetailStatus, &outfit_bold_12, 0);
+    lv_obj_align(s_bitsInvDetailStatus, LV_ALIGN_TOP_RIGHT, -12, 16);
+
+    s_bitsInvDetailTitle = lv_label_create(s_bitsInvDetailScr);
+    lv_obj_set_style_text_font(s_bitsInvDetailTitle, &outfit_bold_16, 0);
+    lv_obj_set_style_text_color(s_bitsInvDetailTitle, COLOR_INK, 0);
+    lv_obj_set_width(s_bitsInvDetailTitle, SCREEN_WIDTH - 24);
+    lv_label_set_long_mode(s_bitsInvDetailTitle, LV_LABEL_LONG_WRAP);
+    lv_obj_set_pos(s_bitsInvDetailTitle, 12, 44);
+
+    s_bitsInvDetailConclTitle = lv_label_create(s_bitsInvDetailScr);
+    lv_obj_set_style_text_font(s_bitsInvDetailConclTitle, &outfit_bold_14, 0);
+    lv_obj_set_style_text_color(s_bitsInvDetailConclTitle, COLOR_PURPLE, 0);
+    lv_obj_set_width(s_bitsInvDetailConclTitle, SCREEN_WIDTH - 24);
+    lv_label_set_long_mode(s_bitsInvDetailConclTitle, LV_LABEL_LONG_WRAP);
+    lv_obj_set_pos(s_bitsInvDetailConclTitle, 12, 96);
+
+    s_bitsInvDetailConclSummary = lv_label_create(s_bitsInvDetailScr);
+    lv_obj_set_style_text_font(s_bitsInvDetailConclSummary, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_bitsInvDetailConclSummary, COLOR_MUTED, 0);
+    lv_obj_set_width(s_bitsInvDetailConclSummary, SCREEN_WIDTH - 24);
+    lv_label_set_long_mode(s_bitsInvDetailConclSummary, LV_LABEL_LONG_WRAP);
+    lv_obj_set_pos(s_bitsInvDetailConclSummary, 12, 136);
+}
+
+void ui::showBitsInvestigationDetail(const dd::BitsInvestigationDetail& detail, const String& err) {
+    buildBitsInvestigationDetailIfNeeded();
+    lv_obj_scroll_to_y(s_bitsInvDetailScr, 0, LV_ANIM_OFF);
+
+    if (detail.detailOk) {
+        lv_label_set_text(s_bitsInvDetailTitle, detail.title.c_str());
+        lv_label_set_text(s_bitsInvDetailStatus, detail.status.c_str());
+        lv_obj_set_style_text_color(s_bitsInvDetailStatus, bitsStatusColor(detail.status), 0);
+        lv_label_set_text(s_bitsInvDetailConclTitle, detail.conclusionTitle.c_str());
+        lv_label_set_text(s_bitsInvDetailConclSummary, detail.conclusionSummary.c_str());
+    } else {
+        lv_label_set_text(s_bitsInvDetailTitle, "Couldn't load investigation");
+        lv_label_set_text(s_bitsInvDetailStatus, "");
+        lv_label_set_text(s_bitsInvDetailConclTitle, "");
+        lv_label_set_text(s_bitsInvDetailConclSummary, err.c_str());
+    }
+
+    s_screen = ui::Screen::BitsInvestigationDetail;
+    lv_scr_load_anim(s_bitsInvDetailScr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
 }
 
 static void buildSloDetailIfNeeded() {

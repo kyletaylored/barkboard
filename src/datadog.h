@@ -94,14 +94,33 @@ struct CaseProject {
     String name;  // e.g. "Sandbox"
 };
 
-// Bits AI Investigation — list response only exposes title/status (confirmed
-// against docs.datadoghq.com; no monitor/team/timestamp field is returned),
-// which is also why "filtered to our team" has to be done by calling
-// filter[monitor_id] once per team monitor rather than one broad fetch.
+// Bits AI Investigation — via GET /api/unstable/bits-ai/investigation/search
+// (see fetchBitsInvestigations()'s doc comment for why an /api/unstable/
+// endpoint is in use here at all). id is the investigation uuid, usable
+// directly with the documented GET /api/v2/bits-ai/investigations/{id} for
+// full detail (fetchBitsInvestigationDetail()) — confirmed live these are
+// the same identifier, not a different id space.
 struct BitsInvestigation {
     String id;
     String title;
+    String status;         // real values seen live: "conclusive"; API also
+                            // documents "inconclusive"/"failed"/"pending"/"in progress"
+    String entitySource;    // e.g. "MONITOR_ENTITY" — best-effort, only one
+                             // source type exists in the org this was verified against
+    uint32_t modifiedTs = 0; // epoch sec, parsed from modified_timestamp
+};
+
+// Fuller detail for one investigation, via the documented
+// GET /api/v2/bits-ai/investigations/{id} — deliberately doesn't cache the
+// full conclusion `description` (a multi-KB markdown wall of text per the
+// live response this was verified against), just title/summary, to keep
+// this cheap on the LVGL pool.
+struct BitsInvestigationDetail {
+    String title;
     String status;
+    String conclusionTitle;
+    String conclusionSummary;
+    bool detailOk = false;
 };
 
 using ProgressCb = std::function<void(int index, int total, const String& host)>;
@@ -314,15 +333,25 @@ bool createIncident(const String& title, String& outIncidentId, String& err);
 // investigation's id.
 bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String& err);
 
-// No team/monitor-list filter exists server-side for this list endpoint
-// (confirmed against docs.datadoghq.com — only filter[monitor_id] is
-// supported, no team facet) — this fans out filter[monitor_id] across the
-// monitor ids already visible to the Monitors screen (i.e. already scoped
-// to storage::getTeamScope()) and merges the results, same fan-out pattern
-// fetchOnCallAll()/fetchMyTeams() used to use before On-Call moved to a
-// single resolved team id.
-bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
-                                         std::vector<BitsInvestigation>& out, String& err);
+// GET /api/unstable/bits-ai/investigation/search — an internal/undocumented
+// endpoint (the web UI's own investigations page uses it), NOT the
+// documented /api/v2/bits-ai/investigations list endpoint, which only
+// supports filter[monitor_id] (one monitor at a time, no team/broad facet —
+// confirmed against docs.datadoghq.com) and can't be scoped to "our team"
+// in a single call. This one takes a real search query (same "team:x"
+// convention as monitors/incidents) and returns richer per-item data
+// (status, entity source, modified timestamp) in one request instead of a
+// fan-out of one GET per monitor. Confirmed live it accepts the standard
+// DD-API-KEY/DD-APPLICATION-KEY headers despite the /api/unstable/ path —
+// but that also means Datadog can change or remove it without the
+// compatibility guarantees /api/v2/ has; if this starts failing after a
+// Datadog platform change, that's the likely cause.
+bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err);
 const std::vector<BitsInvestigation>& lastBitsInvestigations();
+
+// The documented, stable GET /api/v2/bits-ai/investigations/{id} — used for
+// the investigation detail screen once a row from fetchBitsInvestigations()
+// is tapped.
+bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigationDetail& out, String& err);
 
 }

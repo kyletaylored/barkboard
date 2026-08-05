@@ -381,20 +381,9 @@ static void netTask(void*) {
 
             if (ui::bitsInvestigationsFetchPending()) {
                 netJobRunning(NetJobType::FetchBitsInvestigations);
-                // The Bits API only supports filtering by one monitor_id at
-                // a time (see fetchBitsInvestigationsForMonitors()'s doc
-                // comment) — capped to the first 8 of the already-cached,
-                // already-team-scoped monitor list to bound this to at most
-                // 8 sequential HTTP round trips rather than one per monitor
-                // in the whole org.
-                std::vector<long> monitorIds;
-                for (const dd::Monitor& m : dd::lastMonitors()) {
-                    monitorIds.push_back(m.id);
-                    if (monitorIds.size() >= 8) break;
-                }
                 std::vector<dd::BitsInvestigation> investigations;
                 String bierr;
-                dd::fetchBitsInvestigationsForMonitors(monitorIds, investigations, bierr);
+                dd::fetchBitsInvestigations(investigations, bierr);
                 netJobDone(NetJobType::FetchBitsInvestigations, true);
             }
         }
@@ -637,6 +626,21 @@ void loop() {
                 status.target = summary.target;
                 ui::hideBusy();
                 ui::showSloDetail(summary, status, ok);
+            }
+        }
+
+        // Bits Investigation Detail — same "single quick call" pattern as
+        // SLO detail just above.
+        {
+            String invId;
+            if (ui::bitsInvestigationDetailRequestPending(invId)) {
+                ui::showBusy("Loading investigation...");
+                display::tick();
+                dd::BitsInvestigationDetail detail;
+                String ierr;
+                dd::fetchBitsInvestigationDetail(invId, detail, ierr);
+                ui::hideBusy();
+                ui::showBitsInvestigationDetail(detail, ierr);
             }
         }
 

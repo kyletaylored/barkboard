@@ -1265,35 +1265,68 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 static std::vector<BitsInvestigation> g_lastBitsInvestigations;
 const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBitsInvestigations; }
 
-bool fetchBitsInvestigationsForMonitors(const std::vector<long>& monitorIds,
-                                         std::vector<BitsInvestigation>& out, String& err) {
+bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
-    JsonDocument filter;
-    JsonObject bf = filter["data"].add<JsonObject>();
-    bf["id"] = true;
-    bf["attributes"]["title"] = true;
-    bf["attributes"]["status"] = true;
+    // Real response shape confirmed live:
+    // data.attributes.response.investigations[] — each item has uuid/title/
+    // status/entity.source/modified_timestamp at its top level (unlike the
+    // documented v2 list endpoint's JSON:API id/attributes.* wrapping).
+    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=14";
+    String scope = monitorTeamScope();
+    if (scope.length()) url += "&query=" + urlEncode(scope);
 
-    for (long id : monitorIds) {
-        String url = apiBase() + "/api/v2/bits-ai/investigations?filter%5Bmonitor_id%5D=" +
-                     String(id) + "&page%5Blimit%5D=5";
-        JsonDocument doc;
-        String perErr;
-        // Best-effort per monitor — one monitor's fetch failing shouldn't
-        // blank the whole screen when the others succeeded.
-        if (!httpGetJsonRetrying(url, doc, perErr, &filter)) continue;
-        for (JsonObject item : doc["data"].as<JsonArray>()) {
-            BitsInvestigation inv;
-            inv.id     = item["id"]                  | "";
-            inv.title  = item["attributes"]["title"]  | "";
-            inv.status = item["attributes"]["status"] | "";
-            out.push_back(inv);
-            if ((int)out.size() >= 14) { g_lastBitsInvestigations = out; return true; }   // same LVGL-pool-protecting cap as other lists
-        }
+    JsonDocument filter;
+    JsonObject itemFilter = filter["data"]["attributes"]["response"]["investigations"].add<JsonObject>();
+    itemFilter["uuid"] = true;
+    itemFilter["title"] = true;
+    itemFilter["status"] = true;
+    itemFilter["modified_timestamp"] = true;
+    itemFilter["entity"]["source"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    for (JsonObject item : doc["data"]["attributes"]["response"]["investigations"].as<JsonArray>()) {
+        BitsInvestigation inv;
+        inv.id           = item["uuid"]               | "";
+        inv.title        = item["title"]              | "";
+        inv.status       = item["status"]             | "";
+        inv.entitySource = item["entity"]["source"]   | "";
+        inv.modifiedTs   = (uint32_t)parseIso8601ToEpochSec(item["modified_timestamp"] | "");
+        out.push_back(inv);
+        if ((int)out.size() >= 14) break;   // same LVGL-pool-protecting cap as other lists
     }
     g_lastBitsInvestigations = out;
+    return true;
+}
+
+bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigationDetail& out, String& err) {
+    out = BitsInvestigationDetail();
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String url = apiBase() + "/api/v2/bits-ai/investigations/" + investigationId;
+    // Deliberately excludes conclusions[].description — confirmed live it's
+    // a multi-KB markdown wall of text per conclusion, far more than this
+    // panel can usefully show or the LVGL pool should spend on one screen.
+    JsonDocument filter;
+    filter["data"]["attributes"]["title"] = true;
+    filter["data"]["attributes"]["status"] = true;
+    JsonObject conclFilter = filter["data"]["attributes"]["conclusions"].add<JsonObject>();
+    conclFilter["title"] = true;
+    conclFilter["summary"] = true;
+    JsonDocument doc;
+    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+
+    JsonObject a = doc["data"]["attributes"];
+    out.title  = a["title"]  | "";
+    out.status = a["status"] | "";
+    JsonArray conclusions = a["conclusions"].as<JsonArray>();
+    if (conclusions.size() > 0) {
+        out.conclusionTitle   = conclusions[0]["title"]   | "";
+        out.conclusionSummary = conclusions[0]["summary"] | "";
+    }
+    out.detailOk = true;
     return true;
 }
 
