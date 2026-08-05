@@ -1331,10 +1331,18 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         double lo = decimated[0], hi = decimated[0];
         for (double v : decimated) { if (v < lo) lo = v; if (v > hi) hi = v; }
         if (lo == hi) { lo -= 1; hi += 1; }
+        // lv_coord_t is int16_t on this build (LV_USE_LARGE_COORD=0) — clamp
+        // before the cast below, since some metrics (e.g. an hourly error-
+        // count rate) can genuinely exceed +/-32767, and casting an
+        // out-of-range double to a narrower int type is undefined behavior.
+        if (lo < -32000) lo = -32000;
+        if (hi >  32000) hi =  32000;
 
+        Serial.printf("[ui] ckpt: pre-set_point_count lo=%f hi=%f\n", lo, hi);
         lv_chart_set_point_count(s_detailChart, (uint16_t)decimated.size());
         Serial.println("[ui] ckpt: post-set_point_count");
         lv_chart_set_range(s_detailChart, LV_CHART_AXIS_PRIMARY_Y, (lv_coord_t)lo, (lv_coord_t)hi);
+        Serial.println("[ui] ckpt: post-set_range");
         // lv_chart_remove_series() asserts its series arg is non-NULL — on a
         // freshly created chart (first monitor opened this boot) the series
         // list is empty, so lv_chart_get_series_next(chart, NULL) correctly
@@ -1343,6 +1351,7 @@ void ui::showMonitorDetail(const dd::Monitor& detail, const std::vector<dd::Metr
         // permanently hang whichever core called this. Only remove when a
         // series actually exists (i.e. this chart has been populated before).
         lv_chart_series_t* existingSer = lv_chart_get_series_next(s_detailChart, nullptr);
+        Serial.printf("[ui] ckpt: post-get_series_next existing=%p\n", (void*)existingSer);
         if (existingSer) lv_chart_remove_series(s_detailChart, existingSer);
         Serial.println("[ui] ckpt: post-remove_series");
         lv_chart_series_t* ser = lv_chart_add_series(s_detailChart, COLOR_PURPLE, LV_CHART_AXIS_PRIMARY_Y);
