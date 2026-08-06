@@ -258,6 +258,7 @@ static String s_bitsInvestigationDetailRequestId;
 static lv_obj_t* s_bitsInvDetailScr = nullptr;
 static lv_obj_t* s_bitsInvDetailTitle = nullptr;
 static lv_obj_t* s_bitsInvDetailStatus = nullptr;
+static lv_obj_t* s_bitsInvDetailBody = nullptr;   // scrollable container below the fixed header
 static lv_obj_t* s_bitsInvDetailConclTitle = nullptr;
 static lv_obj_t* s_bitsInvDetailConclSummary = nullptr;
 
@@ -1957,13 +1958,7 @@ bool ui::bitsInvestigationDetailRequestPending(String& outId) {
 static void buildBitsInvestigationDetailIfNeeded() {
     if (s_bitsInvDetailScr) return;
     s_bitsInvDetailScr = lv_obj_create(nullptr);
-    styleFullscreen(s_bitsInvDetailScr);
-    // Unlike every other detail screen, this one's content is genuinely
-    // variable-length (a real conclusion summary ran ~500 chars in testing)
-    // — re-enable vertical scrolling rather than risk overflow drawing past
-    // the action bar/screen edge.
-    lv_obj_add_flag(s_bitsInvDetailScr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(s_bitsInvDetailScr, LV_DIR_VER);
+    styleFullscreen(s_bitsInvDetailScr);   // NOT scrollable — back button/title/status stay fixed
 
     lv_obj_t* back = lv_btn_create(s_bitsInvDetailScr);
     lv_obj_set_size(back, 44, 28);
@@ -1990,24 +1985,36 @@ static void buildBitsInvestigationDetailIfNeeded() {
     lv_label_set_long_mode(s_bitsInvDetailTitle, LV_LABEL_LONG_WRAP);
     lv_obj_set_pos(s_bitsInvDetailTitle, 12, 44);
 
-    s_bitsInvDetailConclTitle = lv_label_create(s_bitsInvDetailScr);
+    // Everything below the fixed header lives in its own scrollable
+    // container instead of the screen itself scrolling — the back button/
+    // title/status need to stay reachable regardless of how long the
+    // conclusion summary runs (a real one ran ~500 chars in testing).
+    s_bitsInvDetailBody = lv_obj_create(s_bitsInvDetailScr);
+    lv_obj_set_size(s_bitsInvDetailBody, SCREEN_WIDTH - 24, SCREEN_HEIGHT - 96);
+    lv_obj_set_pos(s_bitsInvDetailBody, 12, 92);
+    lv_obj_set_style_bg_opa(s_bitsInvDetailBody, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_bitsInvDetailBody, 0, 0);
+    lv_obj_set_style_pad_all(s_bitsInvDetailBody, 0, 0);
+    lv_obj_set_scroll_dir(s_bitsInvDetailBody, LV_DIR_VER);
+
+    s_bitsInvDetailConclTitle = lv_label_create(s_bitsInvDetailBody);
     lv_obj_set_style_text_font(s_bitsInvDetailConclTitle, &outfit_bold_14, 0);
     lv_obj_set_style_text_color(s_bitsInvDetailConclTitle, COLOR_PURPLE, 0);
     lv_obj_set_width(s_bitsInvDetailConclTitle, SCREEN_WIDTH - 24);
     lv_label_set_long_mode(s_bitsInvDetailConclTitle, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s_bitsInvDetailConclTitle, 12, 96);
+    lv_obj_set_pos(s_bitsInvDetailConclTitle, 0, 0);
 
-    s_bitsInvDetailConclSummary = lv_label_create(s_bitsInvDetailScr);
+    s_bitsInvDetailConclSummary = lv_label_create(s_bitsInvDetailBody);
     lv_obj_set_style_text_font(s_bitsInvDetailConclSummary, &outfit_thin_12, 0);
     lv_obj_set_style_text_color(s_bitsInvDetailConclSummary, COLOR_MUTED, 0);
     lv_obj_set_width(s_bitsInvDetailConclSummary, SCREEN_WIDTH - 24);
     lv_label_set_long_mode(s_bitsInvDetailConclSummary, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s_bitsInvDetailConclSummary, 12, 136);
+    lv_obj_set_pos(s_bitsInvDetailConclSummary, 0, 40);
 }
 
 void ui::showBitsInvestigationDetail(const dd::BitsInvestigationDetail& detail, const String& err) {
     buildBitsInvestigationDetailIfNeeded();
-    lv_obj_scroll_to_y(s_bitsInvDetailScr, 0, LV_ANIM_OFF);
+    lv_obj_scroll_to_y(s_bitsInvDetailBody, 0, LV_ANIM_OFF);
 
     if (detail.detailOk) {
         lv_label_set_text(s_bitsInvDetailTitle, detail.title.c_str());
@@ -2371,7 +2378,7 @@ static void bitsIdleTick(lv_timer_t*) {
 
     uint32_t s = millis() / 1000;
     uint32_t h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
-    String stat = "Bits has been watching for\n" + String(h) + "h " + String(m) + "m " + String(sec) + "s";
+    String stat = "Up " + String(h) + "h " + String(m) + "m " + String(sec) + "s";
     lv_label_set_text(s_bitsIdleStat, stat.c_str());
 
     time_t now = time(nullptr);
@@ -2419,26 +2426,33 @@ static void buildBitsIdleIfNeeded() {
     lv_animimg_set_repeat_count(dog, LV_ANIM_REPEAT_INFINITE);
     lv_animimg_start(dog);
 
-    s_bitsIdleStat = lv_label_create(s_bitsIdleScr);
-    lv_obj_set_style_text_font(s_bitsIdleStat, &outfit_thin_14, 0);
-    lv_obj_set_style_text_color(s_bitsIdleStat, COLOR_INK, 0);
-    lv_obj_set_style_text_align(s_bitsIdleStat, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_bitsIdleStat, LV_ALIGN_TOP_MID, 0, 155);
-
-    s_bitsIdleDate = lv_label_create(s_bitsIdleScr);
-    lv_obj_set_style_text_font(s_bitsIdleDate, &outfit_thin_12, 0);
-    lv_obj_set_style_text_color(s_bitsIdleDate, COLOR_MUTED, 0);
-    lv_obj_align(s_bitsIdleDate, LV_ALIGN_BOTTOM_MID, 0, -12);
+    // Info block stacked directly under the 130px-tall animation (which ends
+    // ~y=146): wordmark, then version/uptime/date as a compact "about" group —
+    // this is the one screen in the app with real "about" framing.
+    lv_obj_t* titleLbl = lv_label_create(s_bitsIdleScr);
+    lv_obj_set_style_text_font(titleLbl, &outfit_bold_18, 0);
+    lv_obj_set_style_text_color(titleLbl, COLOR_INK, 0);
+    lv_label_set_text(titleLbl, "BarkBoard");
+    lv_obj_align(titleLbl, LV_ALIGN_TOP_MID, 0, 150);
 
     // BARKBOARD_VERSION is stamped in at build time from `git describe`
-    // (tools/get_version.py, see platformio.ini's extra_scripts) — this is
-    // the one screen in the app with real "about" framing, so it's the
-    // natural place to surface it.
+    // (tools/get_version.py, see platformio.ini's extra_scripts).
     lv_obj_t* versionLbl = lv_label_create(s_bitsIdleScr);
     lv_obj_set_style_text_font(versionLbl, &outfit_thin_12, 0);
     lv_obj_set_style_text_color(versionLbl, COLOR_MUTED, 0);
     lv_label_set_text(versionLbl, BARKBOARD_VERSION);
-    lv_obj_align(versionLbl, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+    lv_obj_align(versionLbl, LV_ALIGN_TOP_MID, 0, 176);
+
+    s_bitsIdleStat = lv_label_create(s_bitsIdleScr);
+    lv_obj_set_style_text_font(s_bitsIdleStat, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_bitsIdleStat, COLOR_MUTED, 0);
+    lv_obj_set_style_text_align(s_bitsIdleStat, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_bitsIdleStat, LV_ALIGN_TOP_MID, 0, 194);
+
+    s_bitsIdleDate = lv_label_create(s_bitsIdleScr);
+    lv_obj_set_style_text_font(s_bitsIdleDate, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_bitsIdleDate, COLOR_MUTED, 0);
+    lv_obj_align(s_bitsIdleDate, LV_ALIGN_TOP_MID, 0, 212);
 
     lv_timer_create(bitsIdleTick, 1000, nullptr);
 }
