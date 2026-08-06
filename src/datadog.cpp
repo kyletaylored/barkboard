@@ -598,18 +598,19 @@ bool fetchSlos(std::vector<SloSummary>& out, String& err, int limit) {
     // status: {state, sli}}}} — deeper-nested than the old /api/v1/slo list,
     // but the field *names* (target_threshold, timeframe) carried over
     // unchanged, just relocated one level under "attributes".
-    JsonDocument filter;
-    JsonObject sloItemFilter = filter["data"]["attributes"]["slos"].add<JsonObject>();
-    JsonObject sloAttrFilter = sloItemFilter["data"].add<JsonObject>();
-    sloAttrFilter["id"] = true;
-    sloAttrFilter["attributes"]["name"] = true;
-    sloAttrFilter["attributes"]["slo_type"] = true;
-    sloAttrFilter["attributes"]["target_threshold"] = true;
-    sloAttrFilter["attributes"]["timeframe"] = true;
-    sloAttrFilter["attributes"]["status"]["state"] = true;
-    sloAttrFilter["attributes"]["status"]["sli"] = true;
+    //
+    // Unfiltered — a doubly-nested array filter (data.attributes.slos[].
+    // data...) is the same fundamental shape (and even more deeply nested)
+    // as the one confirmed live to silently match zero items in
+    // fetchBitsInvestigations()'s data.attributes.response.investigations[]
+    // (HTTP 200, no parse error, just an empty result indistinguishable
+    // from "no SLOs configured"). Not independently confirmed broken here,
+    // but not worth the risk of the exact same silent-failure mode for a
+    // handful of small SLO objects (each ran a few hundred bytes unfiltered
+    // in testing, nowhere near the investigation list's several-KB-per-item
+    // cost that motivated trimming that one's page size).
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
     for (JsonObject item : doc["data"]["attributes"]["slos"].as<JsonArray>()) {
         JsonObject s = item["data"];
@@ -1268,8 +1269,7 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBi
 // Real response shape confirmed live: data.attributes.response.investigations[]
 // — each item has uuid/title/status/entity.source/modified_timestamp at its
 // top level (unlike the documented v2 list endpoint's JSON:API
-// id/attributes.* wrapping). Shared by fetchBitsInvestigations()'s
-// team-scoped attempt and its unscoped fallback.
+// id/attributes.* wrapping).
 //
 // Deliberately unfiltered — an ArduinoJson::DeserializationOption::Filter
 // nested this deeply (data.attributes.response.investigations[].*) was
@@ -1278,18 +1278,31 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBi
 // from "genuinely no investigations" without a raw unfiltered comparison,
 // which is exactly what caught this). Not fully root-caused against
 // ArduinoJson's filter semantics; parsing unfiltered sidesteps it rather
-// than chase the exact mechanism further. page_size trimmed 14->6 to keep
-// the now-uncapped-per-item parse cost bounded — each item unfiltered runs
-// several KB (narrative/hypotheses/timings/entity details this screen never
-// reads), and this list only shows a handful of rows anyway.
-static bool fetchBitsInvestigationsQuery(const String& query, std::vector<BitsInvestigation>& out, String& err) {
+// than chase the exact mechanism further.
+//
+// Single call, not a team-scoped search plus a separate unscoped fallback —
+// an investigation's tags come from whichever entity triggered it (a
+// monitor, in every case seen live, under entity.monitor_entity.tags[]),
+// not a property of the investigation itself, so a *server-side* team query
+// can genuinely come back empty even when the org has plenty under other
+// teams. Fetches the most recent batch (confirmed live as the API's own
+// default ordering, no explicit sort needed) and partitions client-side:
+// team-tag matches first, then everything else, both most-recent-first,
+// capped at 14 total. page_size 20, not 14, to have enough recent items to
+// find team matches within before falling back to "just recent" — bounded
+// generously above the display cap since each item runs several KB
+// unfiltered (narrative/hypotheses/timings/entity details this screen never
+// reads) and this is one request either way.
+bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
-    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=6";
-    if (query.length()) url += "&query=" + urlEncode(query);
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
+    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=20";
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
+    String scope = monitorTeamScope();   // e.g. "team:ese-tola", or "" if none configured
+    std::vector<BitsInvestigation> matched, unmatched;
     for (JsonObject item : doc["data"]["attributes"]["response"]["investigations"].as<JsonArray>()) {
         BitsInvestigation inv;
         inv.id           = item["uuid"]               | "";
@@ -1297,32 +1310,17 @@ static bool fetchBitsInvestigationsQuery(const String& query, std::vector<BitsIn
         inv.status       = item["status"]             | "";
         inv.entitySource = item["entity"]["source"]   | "";
         inv.modifiedTs   = (uint32_t)parseIso8601ToEpochSec(item["modified_timestamp"] | "");
-        out.push_back(inv);
-        if ((int)out.size() >= 14) break;   // same LVGL-pool-protecting cap as other lists
-    }
-    return true;
-}
 
-bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
-    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
-
-    // Team-scoped first, same "team:x" convention as Monitors/Incidents/
-    // SLOs — confirmed live this genuinely narrows results correctly when
-    // the team has investigations. But an investigation's tags come from
-    // whichever entity triggered it (a monitor, in every case seen live),
-    // not a property of the investigation itself, and it's entirely
-    // possible for the configured/auto-detected team to have zero
-    // investigations even when the org has plenty under other teams — that
-    // used to render as a dead-empty screen with no way to tell "your team
-    // really has none" apart from "the query is broken". Falling back to
-    // an unscoped fetch (most-recent-first ordering, confirmed live as the
-    // API's own default) instead of leaving the screen empty.
-    String scope = monitorTeamScope();
-    if (scope.length() && fetchBitsInvestigationsQuery(scope, out, err) && !out.empty()) {
-        g_lastBitsInvestigations = out;
-        return true;
+        bool teamMatch = false;
+        if (scope.length()) {
+            for (JsonVariant t : item["entity"]["monitor_entity"]["tags"].as<JsonArray>()) {
+                if (t.as<String>() == scope) { teamMatch = true; break; }
+            }
+        }
+        (teamMatch ? matched : unmatched).push_back(inv);
     }
-    if (!fetchBitsInvestigationsQuery("", out, err)) return false;
+    for (const BitsInvestigation& inv : matched)   { if ((int)out.size() >= 14) break; out.push_back(inv); }
+    for (const BitsInvestigation& inv : unmatched) { if ((int)out.size() >= 14) break; out.push_back(inv); }
     g_lastBitsInvestigations = out;
     return true;
 }
@@ -1332,17 +1330,19 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
     String url = apiBase() + "/api/v2/bits-ai/investigations/" + investigationId;
-    // Deliberately excludes conclusions[].description — confirmed live it's
-    // a multi-KB markdown wall of text per conclusion, far more than this
-    // panel can usefully show or the LVGL pool should spend on one screen.
-    JsonDocument filter;
-    filter["data"]["attributes"]["title"] = true;
-    filter["data"]["attributes"]["status"] = true;
-    JsonObject conclFilter = filter["data"]["attributes"]["conclusions"].add<JsonObject>();
-    conclFilter["title"] = true;
-    conclFilter["summary"] = true;
+    // Unfiltered — a nested array filter (conclusions[].*) at this depth
+    // was confirmed live to silently match zero items in
+    // fetchBitsInvestigations()'s data.attributes.response.investigations[]
+    // (HTTP 200, no parse error, just an empty result). Not confirmed this
+    // exact one also breaks, but it's the same fundamental shape one level
+    // shallower, and getting this wrong reads identically to "no
+    // conclusions yet" — not worth the risk to save parsing conclusions[]
+    // .description (a multi-KB markdown wall of text per conclusion,
+    // confirmed live), which is a transient cost inside `doc` for the
+    // single call this function makes, not something out.conclusionSummary
+    // ever retains.
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
     JsonObject a = doc["data"]["attributes"];
     out.title  = a["title"]  | "";

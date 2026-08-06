@@ -104,10 +104,11 @@ namespace ui {
     void showSloDetail(const dd::SloSummary& summary, const dd::SloStatus& status, bool statusOk);
 
     // Bits AI Investigations (dashboard rotation) — list reads
-    // dd::lastBitsInvestigations(), team-scoped with a fall back to the most
-    // recent org-wide (see dd::fetchBitsInvestigations()'s doc comment for
-    // the /api/unstable/ endpoint this uses and why the fallback exists).
-    // Tapping a row requests full detail via the documented per-id GET.
+    // dd::lastBitsInvestigations(), the most recent batch with team-tag
+    // matches sorted first (see dd::fetchBitsInvestigations()'s doc comment
+    // for the /api/unstable/ endpoint this uses and why the team filter is
+    // applied client-side, not as a server-side query). Tapping a row
+    // requests full detail via the documented per-id GET.
     bool bitsInvestigationsFetchPending();
     void notifyBitsInvestigationsRefreshed();
     bool bitsInvestigationDetailRequestPending(String& outId);

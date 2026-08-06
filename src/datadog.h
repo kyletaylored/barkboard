@@ -345,13 +345,10 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 // compatibility guarantees /api/v2/ has; if this starts failing after a
 // Datadog platform change, that's the likely cause.
 //
-// Team-scoped first (same "team:x" convention as Monitors/Incidents/SLOs),
-// falling back to an unscoped fetch (most recent org-wide) if the scoped
-// query comes back empty — see the implementation's comment for why: the
-// configured/auto-detected team can genuinely have zero investigations
-// (their tags come from the triggering entity, not the investigation
-// itself) even when the org has plenty under other teams, and that used to
-// render as an indistinguishable dead-empty screen.
+// One call (the most recent batch, no server-side team query), partitioned
+// client-side into team-tag matches first, then everything else — see the
+// implementation's comment for why this is a single request rather than a
+// team-scoped search plus a separate unscoped fallback.
 bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err);
 const std::vector<BitsInvestigation>& lastBitsInvestigations();
 
