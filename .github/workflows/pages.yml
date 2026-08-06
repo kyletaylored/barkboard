@@ -103,6 +103,15 @@ jobs:
           fi
           cp "$BOOT_APP0" docs/boot_app0.bin
 
+          # The OG/Twitter share image (docs/index.html's og:image /
+          # twitter:image, both absolute URLs served from the Pages root)
+          # needs to actually live at docs/ root — but assets/source/ is
+          # the canonical source, since README.md also displays it via a
+          # plain repo-relative path. Same "one source, copied into docs/
+          # at deploy time" treatment as the firmware binaries above,
+          # rather than hand-keeping two tracked copies in sync.
+          cp assets/source/barkboard-banner.png docs/barkboard-banner.png
+
       - name: Stamp manifest.json with the build version
         run: |
           set -eu
