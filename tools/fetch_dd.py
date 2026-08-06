@@ -395,13 +395,24 @@ def cmd_investigations(dd, args):
         sys.exit(1)
 
     investigations = resp.get("data", {}).get("attributes", {}).get("response", {}).get("investigations", [])
+
+    if args.raw:
+        for inv in investigations:
+            print(f"\n=== {inv.get('uuid')}  {inv.get('title', '')!r} — raw JSON ===")
+            print(json.dumps(inv, indent=2))
+        print(f"\n{len(investigations)} investigation(s) total.")
+        return
+
     for inv in investigations:
         print(f"\n  {inv.get('uuid')}  {inv.get('title', '')!r}")
         print(f"    status: {inv.get('status')}  entity: {inv.get('entity', {}).get('source')}  modified: {inv.get('modified_timestamp')}")
 
     total = resp.get("data", {}).get("attributes", {}).get("response", {}).get("metadata", {}).get("total_results")
     print(f"\n{len(investigations)} investigation(s) returned (total matching: {total}). "
-          f"Pass a uuid to `fetch_dd.py investigation --id <uuid>` for full detail.")
+          f"Pass --raw to see the full JSON per item (this script applies no field filtering — unlike the device, "
+          f"which uses ArduinoJson's Filter to cut parse cost — so --raw shows everything the API actually returns, "
+          f"including facets/hypotheses/narrative/timings the device never looks at), "
+          f"or a uuid to `fetch_dd.py investigation --id <uuid>` for the documented single-investigation endpoint.")
 
 
 def cmd_investigation(dd, args):
@@ -472,6 +483,8 @@ def main():
     p_invs = sub.add_parser("investigations", help="search Bits AI investigations (Bits screen debugging) — "
                                                      "hits an /api/unstable/ endpoint, see cmd_investigations' docstring")
     p_invs.add_argument("--team", default="", help="team value — applied as 'team:<value>' like the device does")
+    p_invs.add_argument("--raw", action="store_true",
+                        help="dump the full raw JSON per investigation instead of the one-line summary")
     p_invs.set_defaults(func=cmd_investigations)
 
     p_inv = sub.add_parser("investigation", help="fetch one Bits AI investigation's full detail by id")
