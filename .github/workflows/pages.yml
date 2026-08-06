@@ -13,10 +13,14 @@ name: Build & Deploy Browser Flasher
 # Without that toggle, this workflow will build successfully but the
 # deploy-pages step will fail (Pages isn't provisioned to accept it yet).
 #
-# Trigger: every push to main. (A release-tag trigger was considered instead,
-# but this repo doesn't currently cut tags/releases, so "latest main" is the
-# more useful default for a hobby project — flip to `on: release: types:
-# [published]` later if versioned firmware drops become desirable.)
+# Trigger: every push to main — this workflow only ever republishes the
+# "latest main" build at docs/'s root paths (manifest.json, firmware.bin,
+# etc.), which is what the flasher's version picker calls "Latest (main)".
+# Tagged releases are a separate concern, handled by release.yml: pushing a
+# vX.Y.Z tag builds + publishes a versioned copy under docs/versions/<tag>/,
+# updates docs/versions.json (which is what populates the rest of the
+# picker), and does its own Pages deploy in the same run — see that file for
+# why it can't just rely on this one picking up its commit automatically.
 
 # Path filters keep this from redeploying on doc-only commits (README/plan/
 # design edits) — only firmware-affecting files or the flasher page's own
@@ -31,6 +35,7 @@ on:
       - "platformio.ini"
       - "docs/index.html"
       - "docs/manifest.json"
+      - "docs/versions.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

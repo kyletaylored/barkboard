@@ -1,6 +1,6 @@
 # BarkBoard
 
-![BarkBoard](assets/source/barkboard-readme.png)
+![BarkBoard](assets/source/barkboard-banner.png)
 
 A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8" CYD touchscreen sitting on your desk.
 
@@ -16,7 +16,7 @@ A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8
 
 1. **Web Flash**
 
-Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and use the web flasher. Plug in your board, connect to the port, and start the flashing operation.
+Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and use the web flasher. Plug in your board, connect to the port, and start the flashing operation. The firmware dropdown lets you pick "Latest (main)" or a specific tagged release.
 
 2. **Local Flash**
 
@@ -56,16 +56,21 @@ A **"Forget WiFi & keys"** button on the same setup page resets everything and r
 
 Six rotating dashboards (swipe or tap the page dots), plus drill-in detail views:
 
-| Screen        | What's on it                                                                                                                      |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Overview**  | Big ALERT/WARN/OK monitor counts, open incident count + highest severity                                                          |
+| Screen        | What's on it                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Overview**  | Big ALERT/WARN/OK monitor counts, open incident count + highest severity                                                                                     |
 | **Monitors**  | Filterable list; tap a row for detail — live metric/log-count chart with threshold lines, mute/unmute, declare a case/incident, trigger a Bits investigation |
-| **Incidents** | Active incidents with SEV-1..5 badges; tap for detail and to cycle incident state                                                 |
-| **On-Call**   | Current on-call + escalation roster for your team, auto-detected from your API key                                                |
-| **SLOs**      | Configured SLOs; tap one for an arc gauge showing remaining error budget                                                          |
-| **Bits**      | Recent Bits AI Investigations and their status, across your visible monitors                                                     |
+| **Incidents** | Active incidents with SEV-1..5 badges; tap for detail and to cycle incident state                                                                            |
+| **On-Call**   | Current on-call + escalation roster for your team, auto-detected from your API key                                                                           |
+| **SLOs**      | Configured SLOs; tap one for an arc gauge showing remaining error budget                                                                                     |
+| **Bits**      | Recent Bits AI Investigations and their status, across your visible monitors                                                                                 |
 
 Plus a Settings screen (WiFi/site info, re-detect tenant, factory reset) and an animated idle screen.
+
+## Learn more
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the two-core split, setup flow, and Datadog API calls fit together.
+- [`docs/CHALLENGES.md`](docs/CHALLENGES.md) — a build log of the more interesting bugs hit along the way (an LVGL memory pool exhaustion, a silent JSON filter bug, and a few others).
 
 ## Good to know
 

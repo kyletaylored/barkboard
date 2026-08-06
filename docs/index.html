@@ -280,6 +280,7 @@
     <button type="button" class="bb-theme-btn" data-mode="dark">Dark</button>
   </div>
   <div class="bb-copyright" id="copyright">Open source, made with 💜 by Kyle Taylor and Datadog</div>
+  <a class="bb-github" href="https://github.com/kyletaylored/barkboard/blob/main/docs/CHALLENGES.md" target="_blank" rel="noopener">Build Log</a>
   <a class="bb-github" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener"><span class="dot"></span>GitHub</a>
 </div>
 
@@ -446,12 +447,40 @@ els.themeSwitch.querySelectorAll('.bb-theme-btn').forEach((btn) => {
 });
 applyTheme(currentThemeMode());
 
-// --- Manifest (firmware version label + flash part list) ---
+// --- Manifest (firmware version picker + flash part list) ---
+// "Latest (main)" always points at the root manifest.json/*.bin — the
+// continuously-updated build pages.yml republishes on every push to main.
+// Tagged releases (vX.Y.Z) are added below it from versions.json, newest
+// first — each is a self-hosted copy under versions/<tag>/, published by
+// release.yml specifically so this page never has to fetch a GitHub
+// Release's own asset URLs (inconsistent CORS behavior for fetch(), fine
+// for a plain download link but not for this page's own flashing code).
 let manifestParts = null;
-fetch('manifest.json').then((r) => r.json()).then((manifest) => {
-  els.firmwareSelect.innerHTML = '<option>Firmware — v' + manifest.version + '</option>';
-  manifestParts = manifest.builds[0].parts;
-}).catch(() => {});
+
+function loadManifest(url) {
+  manifestParts = null;
+  updateFlashButtons();
+  return fetch(url).then((r) => r.json()).then((manifest) => {
+    manifestParts = manifest.builds[0].parts;
+    updateFlashButtons();
+    return manifest;
+  }).catch(() => {
+    manifestParts = null;
+    updateFlashButtons();
+  });
+}
+
+fetch('versions.json').then((r) => r.json()).catch(() => []).then((versions) => {
+  const opts = ['<option value="manifest.json">Latest (main)</option>'];
+  for (const v of versions) {
+    opts.push('<option value="' + v.manifest + '">' + v.version + '</option>');
+  }
+  els.firmwareSelect.innerHTML = opts.join('');
+  els.firmwareSelect.disabled = false;
+  loadManifest(els.firmwareSelect.value);
+});
+
+els.firmwareSelect.addEventListener('change', () => loadManifest(els.firmwareSelect.value));
 
 // --- Device connection state ---
 // Two independent connection modes, never mixed: 'esptool' talks to the chip's ROM
@@ -473,7 +502,7 @@ function setStatus(label, cls) {
 
 function updateFlashButtons() {
   const disabled = !state.connected || state.connMode !== 'esptool' || state.flashing || state.erasing;
-  els.btnProgram.disabled = disabled;
+  els.btnProgram.disabled = disabled || !manifestParts;
   els.btnErase.disabled = disabled;
   els.btnProgram.style.opacity = disabled ? 0.45 : 1;
   els.btnErase.style.opacity = disabled ? 0.45 : 1;

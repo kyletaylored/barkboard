@@ -1,0 +1,256 @@
+name: Release
+
+# Cuts a versioned release: builds firmware, generates a changelog from the
+# commits since the previous tag, publishes a GitHub Release with that
+# changelog and the raw binaries attached, AND republishes the browser
+# flasher (docs/index.html) with this version added to its version picker —
+# self-hosted under docs/versions/<tag>/, not fetched from the GitHub
+# Release's own assets. GitHub release-asset downloads have a
+# well-documented history of inconsistent CORS behavior for in-browser
+# fetch() (fine for a plain <a href> download, not reliably fine for the
+# WebSerial flasher's own JS to pull binaries from) — self-hosting inside
+# docs/, which Pages already serves with permissive access, sidesteps that
+# entirely. The GitHub Release still gets the raw .bin files attached too,
+# for anyone who'd rather download-and-flash locally with esptool.
+#
+# Trigger: push a tag matching v*.*.* (`git tag v1.2.0 && git push --tags`).
+# workflow_dispatch exists as a manual re-run path — GitHub's "Run workflow"
+# UI lets you pick which existing tag to run it against, so github.ref_name
+# is correct either way without extra input plumbing.
+#
+# This is intentionally its own workflow, not a variant of pages.yml
+# (continuous "latest main" deploys) or build.yml (compile-check CI) — see
+# each of those files' own header comments for why they stay separate.
+#
+# One-time setup a human still needs to do (same as pages.yml's note):
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Own concurrency group, separate from pages.yml's "pages" group — a release
+# run and a routine main-branch deploy shouldn't block each other, but two
+# release runs at once (e.g. a re-dispatch while one's still going) should
+# queue rather than race over the same versions.json/CHANGELOG.md.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          # Full history + tags — this workflow needs to walk commits between
+          # the previous tag and this one for the changelog, not just
+          # tools/get_version.py's git describe (see build.yml's identical
+          # comment for the shallow-clone gotcha this avoids).
+          fetch-depth: 0
+
+      - name: Validate tag
+        run: |
+          set -eu
+          VERSION="${{ github.ref_name }}"
+          # Optional pre-release suffix (v1.0.0-rc1, v1.0.0-dryrun, etc.) —
+          # matches semver's own pre-release grammar closely enough for this
+          # project's needs without pulling in a real semver validator.
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$VERSION' doesn't look like a semver tag (expected vX.Y.Z or vX.Y.Z-suffix) — refusing to cut a release from it." >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          if [[ "$VERSION" == *-* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware (cyd environment)
+        run: pio run -e cyd
+
+      - name: Switch the working tree to main
+        run: |
+          set -eu
+          # The build above ran against the tag's own commit (correct — the
+          # released binary must match exactly what was tagged), but
+          # everything from here on (versioned docs/ files, versions.json,
+          # CHANGELOG.md) is metadata ABOUT the release, not part of it, and
+          # needs to land as a normal commit on top of main's actual current
+          # tip — not on top of the tag's commit, which could be behind main
+          # by the time this runs and would make the later `git push`
+          # rejected as a non-fast-forward. .pio/build/cyd's compiled
+          # binaries are untouched by this (that directory isn't tracked),
+          # so nothing built above is lost by switching branches now.
+          git fetch origin main
+          git checkout -B main origin/main
+
+      - name: Copy binaries into a versioned docs/ folder
+        run: |
+          set -eu
+          BUILD_DIR=.pio/build/cyd
+          OUT_DIR="docs/versions/${VERSION}"
+          mkdir -p "$OUT_DIR"
+          cp "$BUILD_DIR/bootloader.bin" "$OUT_DIR/bootloader.bin"
+          cp "$BUILD_DIR/partitions.bin" "$OUT_DIR/partitions.bin"
+          cp "$BUILD_DIR/firmware.bin" "$OUT_DIR/firmware.bin"
+
+          # Same "find it inside the framework package" trick as pages.yml —
+          # boot_app0.bin isn't produced in the build dir, it ships inside
+          # the Arduino ESP32 framework package itself.
+          BOOT_APP0=$(find ~/.platformio/packages -type f -name boot_app0.bin | head -n1)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "Could not locate boot_app0.bin in ~/.platformio/packages" >&2
+            exit 1
+          fi
+          cp "$BOOT_APP0" "$OUT_DIR/boot_app0.bin"
+
+      - name: Write this version's manifest.json
+        run: |
+          set -eu
+          python3 -c "
+          import json
+          manifest = {
+              'name': 'BarkBoard',
+              'version': '${VERSION}',
+              'new_install_prompt_erase': True,
+              'builds': [
+                  {
+                      'chipFamily': 'ESP32',
+                      'parts': [
+                          {'path': 'versions/${VERSION}/bootloader.bin', 'offset': 4096},
+                          {'path': 'versions/${VERSION}/partitions.bin', 'offset': 32768},
+                          {'path': 'versions/${VERSION}/boot_app0.bin', 'offset': 57344},
+                          {'path': 'versions/${VERSION}/firmware.bin', 'offset': 65536},
+                      ],
+                  }
+              ],
+          }
+          with open('docs/versions/${VERSION}/manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+              f.write('\n')
+          "
+
+      - name: Generate changelog since the previous tag
+        run: |
+          set -eu
+          # Newest-first by creation date, excluding the tag we're releasing
+          # right now — the first line left is the immediately preceding
+          # release, if one exists.
+          PREV_TAG=$(git tag --sort=-creatordate | grep -vFx "$VERSION" | head -n1 || true)
+          echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_ENV"
+
+          RANGE="$VERSION"
+          if [ -n "$PREV_TAG" ]; then RANGE="$PREV_TAG..$VERSION"; fi
+
+          {
+            echo "## $VERSION"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "Changes since $PREV_TAG:"
+            else
+              echo "First release."
+            fi
+            echo ""
+            git log "$RANGE" --no-merges --pretty=format:'- %s (%h)'
+            echo ""
+          } > /tmp/release-notes.md
+
+          cat /tmp/release-notes.md
+
+      - name: Update docs/versions.json and CHANGELOG.md
+        run: |
+          set -eu
+          python3 -c "
+          import json, os
+
+          path = 'docs/versions.json'
+          versions = []
+          if os.path.exists(path):
+              with open(path) as f:
+                  versions = json.load(f)
+          versions = [v for v in versions if v.get('version') != os.environ['VERSION']]
+          versions.insert(0, {
+              'version': os.environ['VERSION'],
+              'manifest': f\"versions/{os.environ['VERSION']}/manifest.json\",
+          })
+          with open(path, 'w') as f:
+              json.dump(versions, f, indent=2)
+              f.write('\n')
+          "
+
+          # Prepend this release's section to the top-level changelog, right
+          # under its title line, so newest is always first.
+          if [ ! -f CHANGELOG.md ]; then
+            printf '# Changelog\n\n' > CHANGELOG.md
+          fi
+          { head -n 2 CHANGELOG.md; cat /tmp/release-notes.md; echo ""; tail -n +3 CHANGELOG.md; } > /tmp/CHANGELOG.md
+          mv /tmp/CHANGELOG.md CHANGELOG.md
+
+      - name: Commit versioned artifacts + changelog back to main
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "docs/versions/${VERSION}" docs/versions.json CHANGELOG.md
+          git commit -m "Release ${VERSION}: publish versioned flasher artifacts + changelog"
+          # Already on main (see the "Switch the working tree to main" step
+          # above), one commit ahead of origin/main — a plain fast-forward.
+          git push origin main
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          PRERELEASE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file /tmp/release-notes.md \
+            $PRERELEASE_FLAG \
+            "docs/versions/${VERSION}/firmware.bin" \
+            "docs/versions/${VERSION}/bootloader.bin" \
+            "docs/versions/${VERSION}/partitions.bin" \
+            "docs/versions/${VERSION}/boot_app0.bin"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
