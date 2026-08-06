@@ -1,5 +1,12 @@
 .pio/
 .vscode/
+# LVGL + lv_drivers, fetched locally per sim/README.md's clone commands —
+# 1259 files / ~99MB of third-party source that ended up committed in the
+# initial commit by mistake. Untracked going forward (see the commit that
+# added this line); still present in already-published history, which
+# would need an actual history rewrite (filter-repo/BFG) to reclaim, not
+# attempted here without being asked.
+sim/vendor/
 .DS_Store
 *.swp
 *.elf
