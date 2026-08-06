@@ -1288,16 +1288,24 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBi
 // teams. Fetches the most recent batch (confirmed live as the API's own
 // default ordering, no explicit sort needed) and partitions client-side:
 // team-tag matches first, then everything else, both most-recent-first,
-// capped at 14 total. page_size 20, not 14, to have enough recent items to
-// find team matches within before falling back to "just recent" — bounded
-// generously above the display cap since each item runs several KB
-// unfiltered (narrative/hypotheses/timings/entity details this screen never
-// reads) and this is one request either way.
+// capped at 14 total.
+//
+// page_size 8, not a bigger number to raise team-match odds — confirmed
+// live that 20 is too large for httpGetJsonRetrying's buffered path here:
+// HTTPClient's internal String buffer failed to grow enough to hold it
+// ("short write... failed" -> IncompleteInput/EmptyInput on both retry
+// attempts, not a network error), consistent with each item running
+// several KB unfiltered (narrative/hypotheses/timings/entity details this
+// screen never reads) times 20 items overflowing what a single contiguous
+// String can reliably hold on this device. 8 is a bit above the 6 the
+// diagnostic that root-caused the ArduinoJson filter issue used
+// successfully; raise cautiously (and re-verify live) if more headroom for
+// team matches turns out to be worth it.
 bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
-    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=20";
+    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=8";
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
