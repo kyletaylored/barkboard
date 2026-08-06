@@ -718,15 +718,23 @@ bool fetchOnCallForTeamId(const String& teamId, std::vector<OnCallEntry>& out, S
         out.push_back(e);
     }
 
+    // "Escalation step N" is only meaningful when there's more than one
+    // step to distinguish — confirmed live this wasn't a numbering bug:
+    // a real team came back with exactly one step containing 6 responders,
+    // so all 6 correctly got labeled step 1 (there IS only a step 1). But
+    // repeating "step 1" six times over doesn't tell you anything a plain
+    // "Escalation" wouldn't, and reads like a bug even though it isn't one.
+    JsonArray escalations = doc["data"]["relationships"]["escalations"]["data"].as<JsonArray>();
+    bool multiStep = escalations.size() > 1;
     int stepIdx = 0;
-    for (JsonObject stepRef : doc["data"]["relationships"]["escalations"]["data"].as<JsonArray>()) {
+    for (JsonObject stepRef : escalations) {
         stepIdx++;
         String stepId = stepRef["id"] | "";
         JsonObject step = findIncluded(included, stepId, "escalation_policy_steps");
         for (JsonObject userRef : step["relationships"]["responders"]["data"].as<JsonArray>()) {
             OnCallEntry e;
             e.user = resolveOnCallUserName(included, userRef["id"] | "");
-            e.schedule = "Escalation step " + String(stepIdx);
+            e.schedule = multiStep ? ("Escalation step " + String(stepIdx)) : "Escalation";
             e.escalationLevel = stepIdx;
             out.push_back(e);
         }
