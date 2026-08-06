@@ -18,6 +18,7 @@ void storage::begin() {
     if (!prefs.isKey(NVS_KEY_LED_BREATHE))       prefs.putBool(NVS_KEY_LED_BREATHE, true);
     if (!prefs.isKey(NVS_KEY_POLL_INTERVAL_SEC)) prefs.putInt(NVS_KEY_POLL_INTERVAL_SEC, DD_POLL_INTERVAL_SEC_DEFAULT);
     if (!prefs.isKey(NVS_KEY_ONCALL_TEAM_ID))    prefs.putString(NVS_KEY_ONCALL_TEAM_ID, "");
+    if (!prefs.isKey(NVS_KEY_METRICS_ENABLED))   prefs.putBool(NVS_KEY_METRICS_ENABLED, false);
 }
 
 String storage::getApiKey() {
@@ -82,6 +83,14 @@ int storage::getPollIntervalSec() {
 
 void storage::setPollIntervalSec(int v) {
     prefs.putInt(NVS_KEY_POLL_INTERVAL_SEC, v);
+}
+
+bool storage::getMetricsEnabled() {
+    return prefs.getBool(NVS_KEY_METRICS_ENABLED, false);   // opt-in
+}
+
+void storage::setMetricsEnabled(bool v) {
+    prefs.putBool(NVS_KEY_METRICS_ENABLED, v);
 }
 
 void storage::clearAll() {

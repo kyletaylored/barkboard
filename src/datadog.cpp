@@ -1,6 +1,7 @@
 #include "datadog.h"
 #include "config.h"
 #include "storage.h"
+#include "wifi_setup.h"   // netcfg::apSsid() — submitDeviceMetrics()'s device: tag
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -1377,6 +1378,42 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
     }
     out.detailOk = true;
     return true;
+}
+
+bool submitDeviceMetrics(String& err) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // Same NTP-readiness guard used elsewhere in this file for anything
+    // that needs a real wall-clock timestamp (see the clock-tick/mute-until
+    // logic) — a garbage pre-NTP-sync timestamp this far in the past is the
+    // kind of thing metrics ingestion silently drops rather than errors on.
+    long ts = (long)time(nullptr);
+    if (ts < 1700000000) { err = "NTP not ready"; return false; }
+
+    String tags = "[\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) + "\"]";
+
+    // type 3 = gauge (Datadog Metrics API's type enum: 0 unspecified,
+    // 1 count, 2 rate, 3 gauge) — every value here is a point-in-time
+    // reading, not something to sum/rate across the submission interval.
+    struct Gauge { const char* metric; double value; };
+    Gauge gauges[] = {
+        { "barkboard.heap.free",      (double)ESP.getFreeHeap() },
+        { "barkboard.heap.min_free",  (double)ESP.getMinFreeHeap() },   // low-water mark since boot — the one that actually catches a slow leak
+        { "barkboard.heap.max_alloc", (double)ESP.getMaxAllocHeap() },  // largest contiguous block — fragmentation signal, not just "heap low"
+        { "barkboard.wifi.rssi",      (double)WiFi.RSSI() },
+        { "barkboard.uptime",         (double)(millis() / 1000) },
+    };
+
+    String body = "{\"series\":[";
+    for (size_t i = 0; i < sizeof(gauges) / sizeof(gauges[0]); ++i) {
+        if (i) body += ",";
+        body += "{\"metric\":\"" + String(gauges[i].metric) + "\",\"type\":3,\"points\":[{\"timestamp\":" +
+                String(ts) + ",\"value\":" + String(gauges[i].value, 2) + "}],\"tags\":" + tags + "}";
+    }
+    body += "]}";
+
+    String url = apiBase() + "/api/v2/series";
+    return httpMutateJson("POST", url, body, nullptr, err);
 }
 
 }

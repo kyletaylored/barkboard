@@ -2,6 +2,7 @@
 #include "config.h"
 #include "storage.h"
 #include "datadog.h"
+#include "wifi_setup.h"   // netcfg::apSsid() — shown in the device-metrics note
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -336,6 +337,16 @@ static void sendStatus(const String& banner, bool err=false) {
     html += String("<option value=\"solid\"") + (!ledBreathe ? " selected" : "") + ">Solid green when healthy</option>";
     html += "</select>";
     html += "<div class=\"bb-note\">Either way, Warn/Alert still show as solid yellow/red — this only changes the all-clear look.</div>";
+    html += "<label>Device metrics</label>";
+    bool metricsOn = storage::getMetricsEnabled();
+    html += "<select name=\"metrics_enabled\">";
+    html += String("<option value=\"off\"") + (!metricsOn ? " selected" : "") + ">Off</option>";
+    html += String("<option value=\"on\"")  + (metricsOn  ? " selected" : "") + ">On — send to this Datadog org</option>";
+    html += "</select>";
+    html += "<div class=\"bb-note\">Sends a handful of device-health gauges (free heap, WiFi signal, uptime) back "
+            "to your own Datadog org every " + String(METRICS_INTERVAL_SEC) + "s, tagged <code>device:" +
+            htmlEscape(netcfg::apSsid()) + "</code> — because what's a Datadog dashboard without also monitoring "
+            "itself? Off by default.</div>";
     html += "<button type=\"submit\">Save preferences</button>";
     html += "</form></div>";
 
@@ -429,6 +440,7 @@ static void handleSavePrefs() {
     storage::setTimeFormat24h(server.arg("time_format") != "12");
     bool ledBreathe = server.arg("led_style") != "solid";
     storage::setLedBreatheEnabled(ledBreathe);
+    storage::setMetricsEnabled(server.arg("metrics_enabled") == "on");
 
     // Only accept one of the preset values the form actually offers — a
     // malformed/garbage value here (e.g. 0) would turn into a tight loop
@@ -443,9 +455,9 @@ static void handleSavePrefs() {
     // led_style ever comes back empty/unexpected here, that's a form
     // problem; if it's correct here but the LED still doesn't change,
     // that's downstream in updateMoodLed()/the LEDC hardware layer instead.
-    Serial.printf("[portal] save-prefs: team=%s time_format=%s led_style=%s -> ledBreatheEnabled=%s\n",
+    Serial.printf("[portal] save-prefs: team=%s time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s\n",
                   team.c_str(), server.arg("time_format").c_str(), server.arg("led_style").c_str(),
-                  ledBreathe ? "true" : "false");
+                  ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str());
     server.sendHeader("Location", "/?prefs=saved");
     server.send(303, "text/plain", "");
 }

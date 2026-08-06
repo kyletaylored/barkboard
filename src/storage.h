@@ -35,6 +35,13 @@ namespace storage {
     int    getPollIntervalSec();    // how often the dashboard re-polls Datadog; default 60s
     void   setPollIntervalSec(int v);
 
+    // Opt-in — off by default. Sends a handful of device-health gauges
+    // (free heap, WiFi RSSI, uptime) to the same Datadog org via
+    // dd::submitDeviceMetrics(), tagged device:<AP SSID>. See its doc
+    // comment in datadog.h for exactly what's sent and why it's opt-in.
+    bool   getMetricsEnabled();
+    void   setMetricsEnabled(bool v);
+
     void   clearAll();
     bool   hasKeys();             // both api key and app key present
     bool   hasSite();

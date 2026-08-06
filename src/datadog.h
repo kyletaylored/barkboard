@@ -366,4 +366,29 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations();
 // is tapped.
 bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigationDetail& out, String& err);
 
+// ---- Device self-monitoring (opt-in, storage::getMetricsEnabled()) ----
+
+// Submits a handful of device-health gauges to Datadog's own Metrics API
+// (POST /api/v2/series) — auth is DD-API-KEY only, no app key needed
+// (confirmed: application keys are for read/query endpoints, not metric
+// submission).
+//
+// Deliberately doesn't include LVGL's own memory pool stats (lv_mem_monitor())
+// even though they'd be a genuinely interesting gauge — that call touches
+// LVGL's shared, non-thread-safe internal state, and this function runs on
+// netTask() (core 0), not the LVGL-owning core 1. This project's own
+// CLAUDE.md rule ("never touch LVGL objects from the network task") and an
+// entire earlier debugging session (the lv_chart_remove_series() TLSF hang)
+// exist specifically because that boundary matters here more than most
+// Arduino projects. Everything sent below (ESP.getFreeHeap() and friends,
+// WiFi.RSSI(), millis()) is either already read from netTask() elsewhere in
+// this file or is core-0-native (WiFi state), so none of it crosses that
+// line.
+//
+// Tagged device:<AP SSID> (the same "BarkBoard-XXXX" identifier already
+// shown during setup, via netcfg::apSsid()) and firmware_version:<the
+// BARKBOARD_VERSION build stamp> — enough to tell multiple devices apart if
+// more than one reports to the same org.
+bool submitDeviceMetrics(String& err);
+
 }

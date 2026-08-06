@@ -71,6 +71,11 @@
 #define NVS_KEY_TIME_FORMAT_24H "time_24h"    // bool; default true (24h) if unset
 #define NVS_KEY_LED_BREATHE     "led_breathe" // bool; default true — purple breathing LED when healthy
 #define NVS_KEY_POLL_INTERVAL_SEC "poll_sec"  // int; default DD_POLL_INTERVAL_SEC_DEFAULT (60s)
+#define NVS_KEY_METRICS_ENABLED "dd_metrics_en" // bool; default false — opt-in device-health metrics, see storage.h
+// How often netTask() submits device metrics when NVS_KEY_METRICS_ENABLED is
+// on — independent of the dashboard's own data-poll interval; these gauges
+// don't need to be nearly as fresh as monitor/incident counts.
+#define METRICS_INTERVAL_SEC 60
 // On-Call's own team selection — deliberately separate from
 // NVS_KEY_SCOPE_TEAM above. That field answers "what should Monitors/
 // Incidents/SLOs show"; this one answers "which team's on-call roster",

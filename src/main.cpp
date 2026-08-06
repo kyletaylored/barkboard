@@ -297,6 +297,7 @@ static void netTask(void*) {
     int prevAlert = -1;
     size_t prevIncidents = (size_t)-1;
     bool myTeamsAutoFetchDone = false;
+    uint32_t lastMetricsMs = 0;
 
     for (;;) {
         if (netcfg::isConnected() && isConfiguredThrottled()) {
@@ -330,6 +331,18 @@ static void netTask(void*) {
                 prevAlert = counts.alert;
                 prevIncidents = incidents.size();
                 netJobDone(NetJobType::PollAmbient, true);
+            }
+
+            // Opt-in device self-monitoring (Settings page toggle,
+            // storage::getMetricsEnabled(), default off) — its own interval,
+            // independent of the dashboard's own data-poll cadence above,
+            // since these gauges don't need to be nearly as fresh. Silent,
+            // no netJobRunning()/busy overlay, same as the ambient poll.
+            if (storage::getMetricsEnabled() &&
+                (!lastMetricsMs || (millis() - lastMetricsMs) > (uint32_t)METRICS_INTERVAL_SEC * 1000UL)) {
+                lastMetricsMs = millis();
+                String merr;
+                dd::submitDeviceMetrics(merr);
             }
 
             long monitorId;
