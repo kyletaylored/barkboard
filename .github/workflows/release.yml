@@ -24,6 +24,17 @@ name: Release
 #
 # One-time setup a human still needs to do (same as pages.yml's note):
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+#
+# A SECOND one-time setting, confirmed the hard way via a live dry-run tag
+# that failed in ~3 seconds with "Tag '...' is not allowed to deploy to
+# github-pages due to environment protection rules": the github-pages
+# environment GitHub auto-creates only allows deployments from whatever its
+# "Deployment branches and tags" rule covers, and by default that does NOT
+# include tags — only main, from pages.yml's earlier deploys. Fix once at:
+#   Settings -> Environments -> github-pages -> Deployment branches and tags
+#   -> Add rule -> pattern "v*" (or switch to "No restriction")
+# Without this, every tag push fails this workflow immediately, before even
+# checking out the repo.
 on:
   push:
     tags: ["v*.*.*"]
