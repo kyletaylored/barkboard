@@ -340,7 +340,12 @@ static bool        s_detailMonitorMuted = false;
 // keyboard, so this is the whole title, not a starting point the user edits.
 static String declareTitleFor(const String& monitorName, const String& status) {
     String s = status; s.toUpperCase();
-    return monitorName + " — " + s;
+    // Plain hyphen, not an em dash — the on-device bitmap font (lv_font_conv
+    // output) doesn't include U+2014, and drawing a missing glyph logs an
+    // LVGL warning on *every redraw*, not just once. Harmless by itself, but
+    // real spam once this label sits inside a scrolling marquee (buildTableRow)
+    // or repaints every frame for any other reason.
+    return monitorName + " - " + s;
 }
 
 // Settings
@@ -558,7 +563,8 @@ static lv_obj_t* makeDashScreen(int idx) {
 // incidents are open); On-Call/SLOs skip a badge since neither has a single
 // summary number cheap enough to keep resident on this screen.
 static lv_obj_t* addNavTile(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h,
-                             const char* icon, const char* label, int targetIdx, lv_obj_t** outBadge) {
+                             const char* icon, const char* label, int targetIdx, lv_obj_t** outBadge,
+                             lv_event_cb_t customClickCb = nullptr) {
     lv_obj_t* tile = lv_obj_create(parent);
     lv_obj_set_size(tile, w, h);
     lv_obj_set_pos(tile, x, y);
@@ -569,50 +575,109 @@ static lv_obj_t* addNavTile(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coo
     lv_obj_set_style_pad_all(tile, 0, 0);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_user_data(tile, (void*)(intptr_t)targetIdx);
-    lv_obj_add_event_cb(tile, [](lv_event_t* e) {
-        int target = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
-        rotateTo(target, true);
-    }, LV_EVENT_CLICKED, nullptr);
+    if (customClickCb) {
+        // Caller wants tap behavior other than "rotate to a DashIdx tab"
+        // (e.g. jumping straight to the Bits idle overlay, which isn't a
+        // dashboard tab at all) — user_data/targetIdx are unused in this path.
+        lv_obj_add_event_cb(tile, customClickCb, LV_EVENT_CLICKED, nullptr);
+    } else {
+        lv_obj_set_user_data(tile, (void*)(intptr_t)targetIdx);
+        lv_obj_add_event_cb(tile, [](lv_event_t* e) {
+            int target = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
+            rotateTo(target, true);
+        }, LV_EVENT_CLICKED, nullptr);
+    }
 
+    // Tile is 50px tall (3-row grid, see buildOverview()). outfit_bold_22's
+    // line_height is 24px, outfit_bold_14's is 15px: 6 (top gap) + 24 (icon)
+    // + 4 (bottom gap) + 15 (label) - 1px overlap headroom leaves 1px to
+    // spare at the very bottom, so top-align the icon and bottom-align the
+    // label rather than trying to center both independently.
     lv_obj_t* iconLbl = lv_label_create(tile);
     lv_obj_set_style_text_font(iconLbl, &outfit_bold_22, 0);
     lv_obj_set_style_text_color(iconLbl, COLOR_PURPLE, 0);
     lv_label_set_text(iconLbl, icon);
-    lv_obj_align(iconLbl, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_align(iconLbl, LV_ALIGN_TOP_MID, 0, 6);
 
     lv_obj_t* nameLbl = lv_label_create(tile);
     lv_obj_set_style_text_font(nameLbl, &outfit_bold_14, 0);
     lv_obj_set_style_text_color(nameLbl, COLOR_INK, 0);
     lv_label_set_text(nameLbl, label);
-    lv_obj_align(nameLbl, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_align(nameLbl, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     if (outBadge) {
         lv_obj_t* badge = lv_label_create(tile);
         lv_obj_set_style_text_font(badge, &outfit_bold_12, 0);
         lv_obj_set_style_text_color(badge, COLOR_ALERT, 0);
         lv_label_set_text(badge, "");
-        lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -6, 4);
+        lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -6, 2);
         *outBadge = badge;
     }
+    return tile;
+}
+
+// Sibling to addNavTile() for the one Overview tile that doesn't jump to a
+// DASH_* tab: tapping it opens the Bits idle overlay directly (a full-screen
+// widget reached elsewhere only via the status-bar mark or a long-press,
+// see showBitsIdle()). Uses the small Bits bitmap instead of a symbol-font
+// icon, so it needs an lv_img rather than addNavTile()'s icon label.
+static lv_obj_t* addBitsNavTile(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h,
+                                 const char* label) {
+    lv_obj_t* tile = lv_obj_create(parent);
+    lv_obj_set_size(tile, w, h);
+    lv_obj_set_pos(tile, x, y);
+    lv_obj_set_style_bg_color(tile, COLOR_SURFACE, 0);
+    lv_obj_set_style_border_color(tile, COLOR_BORDER, 0);
+    lv_obj_set_style_border_width(tile, 1, 0);
+    lv_obj_set_style_radius(tile, 10, 0);
+    lv_obj_set_style_pad_all(tile, 0, 0);
+    lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(tile, [](lv_event_t*) { ui::showBitsIdle(); }, LV_EVENT_CLICKED, nullptr);
+
+    // bits_icon_small is 18x20 (see addStatusBar()) - same 6px top gap as
+    // addNavTile()'s icon, well within the 50px tile height alongside the
+    // 15px label line below it.
+    lv_obj_t* img = lv_img_create(tile);
+    lv_img_set_src(img, &bits_icon_small);
+    lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 6);
+
+    lv_obj_t* nameLbl = lv_label_create(tile);
+    lv_obj_set_style_text_font(nameLbl, &outfit_bold_14, 0);
+    lv_obj_set_style_text_color(nameLbl, COLOR_INK, 0);
+    lv_label_set_text(nameLbl, label);
+    lv_obj_align(nameLbl, LV_ALIGN_BOTTOM_MID, 0, -4);
+
     return tile;
 }
 
 static void buildOverview() {
     lv_obj_t* s = s_dashScr[DASH_OVERVIEW];
 
+    // 3 rows x 2 columns to fit six tiles (four dashboard tabs, an
+    // Investigations shortcut into DASH_BITS, and a direct Bits-mark
+    // shortcut) while keeping tileW - and the room for text like
+    // "Investigations" - the same as the original 2x2 layout, at the cost
+    // of a shorter tileH.
     const int gap    = 10;
     const int gridX  = LIST_INSET;      // matches the nav-arrow inset every other screen uses
     const int gridY  = 30;
     const int gridW  = LIST_WIDTH;
     const int gridH  = 170;             // leaves room below for the last-poll line + page dots
     const int tileW  = (gridW - gap) / 2;
-    const int tileH  = (gridH - gap) / 2;
+    const int tileH  = (gridH - 2 * gap) / 3;
+    const int row0   = gridY;
+    const int row1   = gridY + tileH + gap;
+    const int row2   = gridY + 2 * (tileH + gap);
+    const int col0   = gridX;
+    const int col1   = gridX + tileW + gap;
 
-    addNavTile(s, gridX,               gridY,             tileW, tileH, LV_SYMBOL_BELL,    "Monitors",  DASH_MONITORS,  &s_ovMonitorBadge);
-    addNavTile(s, gridX + tileW + gap, gridY,             tileW, tileH, LV_SYMBOL_WARNING, "Incidents", DASH_INCIDENTS, &s_ovIncidentBadge);
-    addNavTile(s, gridX,               gridY + tileH + gap, tileW, tileH, LV_SYMBOL_CALL,  "On-Call",   DASH_ONCALL,    nullptr);
-    addNavTile(s, gridX + tileW + gap, gridY + tileH + gap, tileW, tileH, LV_SYMBOL_OK,    "SLOs",      DASH_SLO,       nullptr);
+    addNavTile(s, col0, row0, tileW, tileH, LV_SYMBOL_BELL,    "Monitors",  DASH_MONITORS,  &s_ovMonitorBadge);
+    addNavTile(s, col1, row0, tileW, tileH, LV_SYMBOL_WARNING, "Incidents", DASH_INCIDENTS, &s_ovIncidentBadge);
+    addNavTile(s, col0, row1, tileW, tileH, LV_SYMBOL_CALL,    "On-Call",   DASH_ONCALL,    nullptr);
+    addNavTile(s, col1, row1, tileW, tileH, LV_SYMBOL_OK,      "SLOs",      DASH_SLO,       nullptr);
+    addNavTile(s, col0, row2, tileW, tileH, LV_SYMBOL_EYE_OPEN, "Investigations", DASH_BITS, nullptr);
+    addBitsNavTile(s, col1, row2, tileW, tileH, "Bits");
 
     s_ovLastPoll = lv_label_create(s);
     lv_obj_set_style_text_font(s_ovLastPoll, &outfit_thin_12, 0);
@@ -742,29 +807,17 @@ static lv_obj_t* buildTableRow(lv_obj_t* parent, bool showDot, lv_color_t dotCol
     lv_obj_t* titleLbl = lv_label_create(row);
     lv_obj_set_style_text_font(titleLbl, &outfit_bold_12, 0);
     lv_obj_set_style_text_color(titleLbl, COLOR_INK, 0);
-    // Marquee (LV_LABEL_LONG_SCROLL_CIRCULAR), not truncation — only kicks
-    // in once the flex-assigned width is actually narrower than the text,
-    // so short titles just sit still; long ones scroll instead of losing
-    // the tail end to "…". anim_speed slower than LVGL's default (dpi/3
-    // px/sec, quite fast on this panel's DPI); the pause-before-start and
-    // pause-after-loop-back timing comes from a shared static lv_anim_t
-    // "template" — lv_label's own LONG_SCROLL_CIRCULAR implementation reads
-    // a template's act_time (start delay) and repeat_delay (loop pause) off
-    // whatever's set via lv_obj_set_style_anim() and copies them onto the
-    // real scroll animation it builds internally, per lv_label.c. The
-    // template must stay alive for as long as any label references it via
-    // this style (LVGL stores a pointer, not a copy) — hence static.
-    static lv_anim_t marqueeTemplate;
-    static bool marqueeTemplateInit = false;
-    if (!marqueeTemplateInit) {
-        lv_anim_init(&marqueeTemplate);
-        lv_anim_set_delay(&marqueeTemplate, 1500);         // pause before the first scroll
-        lv_anim_set_repeat_delay(&marqueeTemplate, 1500);  // pause after scrolling back to the start
-        marqueeTemplateInit = true;
-    }
-    lv_obj_set_style_anim_speed(titleLbl, 18, 0);   // px/sec — slower than the ~40+ px/sec default
-    lv_obj_set_style_anim(titleLbl, &marqueeTemplate, 0);
-    lv_label_set_long_mode(titleLbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    // Plain truncation (LV_LABEL_LONG_DOT), not the LV_LABEL_LONG_SCROLL_CIRCULAR
+    // marquee this used to be — reverted after two live-confirmed LVGL pool
+    // (LV_MEM_SIZE, 64KB) exhaustion crashes. Each marquee label carried two
+    // extra local styles (anim_speed + anim), which on this LVGL version means
+    // a style-array realloc per label (get_local_style()/lv_obj_style.c); with
+    // six dashboard screens' worth of rows kept resident at once (see this
+    // file's DASH_COUNT + lv_conf.h's LV_MEM_SIZE comment on the pool already
+    // being at its measured ceiling), that was consistently enough to tip the
+    // pool over during ordinary navigation. Long titles lose the tail to "…"
+    // instead of scrolling — a real but minor UX downgrade, not a bug.
+    lv_label_set_long_mode(titleLbl, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(titleLbl, 1);   // absorb remaining width after dot + meta
     lv_label_set_text(titleLbl, title.c_str());
 
@@ -2323,7 +2376,12 @@ void ui::showSettings() {
     lv_label_set_text(lv_obj_get_child(s_settingsReset, 0), "FACTORY RESET");
     lv_label_set_text(s_settingsResult, "");
 
+    // barkboard.local resolves to the same address as the IP line above via
+    // mDNS (netcfg::begin() registers it) — worth surfacing directly since
+    // it's what the README and setup flow actually tell people to type,
+    // rather than making them come back here to read off a raw IP first.
     String info = "WiFi: " + WiFi.SSID() + "\nIP: " + WiFi.localIP().toString() +
+                  "\nSetup: barkboard.local" +
                   "\nRSSI: " + String(WiFi.RSSI()) + " dBm" +
                   "\nFree heap: " + String(ESP.getFreeHeap() / 1024) + " KB";
     lv_label_set_text(s_settingsInfo, info.c_str());

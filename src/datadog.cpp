@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <esp_system.h>   // esp_reset_reason() — reportBootEvent()
 
 namespace dd {
 
@@ -1380,7 +1381,30 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
     return true;
 }
 
-bool submitDeviceMetrics(String& err) {
+// esp_reset_reason() is stable for the whole runtime (read from an RTC/
+// hardware register at boot, not something later code can clear) — safe to
+// call from netTask() (core 0) any time, including well after boot.
+static const char* resetReasonStr(esp_reset_reason_t r) {
+    switch (r) {
+        case ESP_RST_POWERON:   return "poweron";
+        case ESP_RST_EXT:       return "ext";
+        case ESP_RST_SW:        return "sw";
+        case ESP_RST_PANIC:     return "panic";
+        case ESP_RST_INT_WDT:   return "int_wdt";
+        case ESP_RST_TASK_WDT:  return "task_wdt";
+        case ESP_RST_WDT:       return "wdt";
+        case ESP_RST_DEEPSLEEP: return "deepsleep";
+        case ESP_RST_BROWNOUT:  return "brownout";
+        case ESP_RST_SDIO:      return "sdio";
+        default:                return "unknown";
+    }
+}
+static bool resetReasonIsAbnormal(esp_reset_reason_t r) {
+    return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
+           r == ESP_RST_WDT   || r == ESP_RST_BROWNOUT;
+}
+
+bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err) {
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
     // Same NTP-readiness guard used elsewhere in this file for anything
@@ -1390,16 +1414,32 @@ bool submitDeviceMetrics(String& err) {
     long ts = (long)time(nullptr);
     if (ts < 1700000000) { err = "NTP not ready"; return false; }
 
-    String tags = "[\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) + "\"]";
+    // Static hardware facts as tags, not repeated gauges — these don't
+    // change while the device is running, so they're dimensions to filter/
+    // group by (e.g. "compare RSSI across chip revisions"), same convention
+    // Datadog's own Agent uses for host tags.
+    String hwTags = ",\"chip_model:" + String(ESP.getChipModel()) +
+                    "\",\"chip_revision:" + String(ESP.getChipRevision()) +
+                    "\",\"cpu_freq_mhz:" + String(ESP.getCpuFreqMHz()) +
+                    "\",\"flash_size_mb:" + String(ESP.getFlashChipSize() / (1024 * 1024)) +
+                    "\",\"sdk_version:" + String(ESP.getSdkVersion()) +
+                    "\",\"boot_reason:" + String(resetReasonStr(esp_reset_reason())) + "\"";
+    String baseTags = "[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) + "\"" + hwTags + "]";
+
+    uint32_t heapSize = ESP.getHeapSize();
+    uint32_t heapFree  = ESP.getFreeHeap();
+    double heapUsedPct = heapSize ? (double)(heapSize - heapFree) / heapSize * 100.0 : 0;
 
     // type 3 = gauge (Datadog Metrics API's type enum: 0 unspecified,
     // 1 count, 2 rate, 3 gauge) — every value here is a point-in-time
     // reading, not something to sum/rate across the submission interval.
     struct Gauge { const char* metric; double value; };
     Gauge gauges[] = {
-        { "barkboard.heap.free",      (double)ESP.getFreeHeap() },
+        { "barkboard.heap.free",      (double)heapFree },
         { "barkboard.heap.min_free",  (double)ESP.getMinFreeHeap() },   // low-water mark since boot — the one that actually catches a slow leak
         { "barkboard.heap.max_alloc", (double)ESP.getMaxAllocHeap() },  // largest contiguous block — fragmentation signal, not just "heap low"
+        { "barkboard.heap.size",      (double)heapSize },
+        { "barkboard.heap.used_pct",  heapUsedPct },
         { "barkboard.wifi.rssi",      (double)WiFi.RSSI() },
         { "barkboard.uptime",         (double)(millis() / 1000) },
     };
@@ -1408,11 +1448,51 @@ bool submitDeviceMetrics(String& err) {
     for (size_t i = 0; i < sizeof(gauges) / sizeof(gauges[0]); ++i) {
         if (i) body += ",";
         body += "{\"metric\":\"" + String(gauges[i].metric) + "\",\"type\":3,\"points\":[{\"timestamp\":" +
-                String(ts) + ",\"value\":" + String(gauges[i].value, 2) + "}],\"tags\":" + tags + "}";
+                String(ts) + ",\"value\":" + String(gauges[i].value, 2) + "}],\"tags\":" + baseTags + "}";
+    }
+
+    // Per-task stack headroom — uxTaskGetStackHighWaterMark() is a plain
+    // FreeRTOS kernel query with its own internal locking, safe to call
+    // cross-core for another task's handle; it's not an LVGL call, so it
+    // doesn't cross the core-0/core-1 LVGL boundary this file's other
+    // comments warn about. dd-net's own handle comes from
+    // xTaskGetCurrentTaskHandle() since this function always runs on it;
+    // loopTaskHandle is passed in because it was captured once in setup()
+    // (core 1) — a task can't look up another task's handle by name.
+    struct TaskStack { const char* name; TaskHandle_t handle; };
+    TaskStack stacks[] = {
+        { "loop",   loopTaskHandle },
+        { "dd-net", xTaskGetCurrentTaskHandle() },
+    };
+    for (size_t i = 0; i < sizeof(stacks) / sizeof(stacks[0]); ++i) {
+        if (!stacks[i].handle) continue;
+        uint32_t freeWords = uxTaskGetStackHighWaterMark(stacks[i].handle);
+        body += ",{\"metric\":\"barkboard.task.stack_free\",\"type\":3,\"points\":[{\"timestamp\":" +
+                String(ts) + ",\"value\":" + String((double)freeWords, 2) +
+                "}],\"tags\":[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
+                "\",\"task:" + String(stacks[i].name) + "\"]}";
     }
     body += "]}";
 
     String url = apiBase() + "/api/v2/series";
+    return httpMutateJson("POST", url, body, nullptr, err);
+}
+
+bool reportBootEvent(String& err) {
+    esp_reset_reason_t reason = esp_reset_reason();
+    if (!resetReasonIsAbnormal(reason)) return true;   // clean boot — nothing to report
+
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    String reasonStr = String(resetReasonStr(reason));
+    String body = "{\"title\":\"BarkBoard rebooted abnormally (" + reasonStr + ")\","
+                  "\"text\":\"Device " + netcfg::apSsid() + " restarted after a " + reasonStr +
+                  " reset — see barkboard.task.stack_free and barkboard.heap.* around this time for a possible cause.\","
+                  "\"alert_type\":\"error\","
+                  "\"tags\":[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
+                  "\",\"boot_reason:" + reasonStr + "\"]}";
+
+    String url = apiBase() + "/api/v1/events";
     return httpMutateJson("POST", url, body, nullptr, err);
 }
 

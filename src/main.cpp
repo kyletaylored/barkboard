@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <lvgl.h>
 #include <math.h>
 #include <vector>
 
@@ -254,6 +255,13 @@ static NetJobStatus  g_netJob;
 // internals across cores.
 static volatile bool g_chirpPending = false;
 
+// Captured once in setup() (core 1) via xTaskGetCurrentTaskHandle() — a task
+// can't look up another task's handle by name, so this is passed into
+// dd::submitDeviceMetrics() to report the Arduino loop task's stack
+// headroom alongside dd-net's own (see that function's doc comment in
+// datadog.h). A plain FreeRTOS handle, safe to read cross-core.
+static TaskHandle_t g_loopTaskHandle = nullptr;
+
 // g_netJob has room for exactly one outstanding signal — if two of
 // netTask()'s three jobs (ambient poll / Monitor Detail / On-Call) finish
 // within the same core-0 pass before core 1's loop() drains between them,
@@ -298,9 +306,22 @@ static void netTask(void*) {
     size_t prevIncidents = (size_t)-1;
     bool myTeamsAutoFetchDone = false;
     uint32_t lastMetricsMs = 0;
+    bool bootReportDone = false;
 
     for (;;) {
         if (netcfg::isConnected() && isConfiguredThrottled()) {
+            // One-shot per boot: reports the previous boot's reset reason
+            // as a Datadog Event, but only when it was abnormal (panic/
+            // watchdog/brownout) — see dd::reportBootEvent()'s doc comment.
+            // Gated on the same opt-in toggle as the metrics gauges below —
+            // Events (like custom metrics) are billable Datadog usage, so
+            // this shouldn't fire for anyone who left device metrics off.
+            if (!bootReportDone && storage::getMetricsEnabled()) {
+                bootReportDone = true;
+                String berr;
+                dd::reportBootEvent(berr);
+            }
+
             // Auto-detect the team scope fallback (dd::bareTeamScope()) once
             // per boot via filter[me] — only when the manual Team field is
             // blank, so a user who always intended to type one doesn't pay
@@ -342,7 +363,7 @@ static void netTask(void*) {
                 (!lastMetricsMs || (millis() - lastMetricsMs) > (uint32_t)METRICS_INTERVAL_SEC * 1000UL)) {
                 lastMetricsMs = millis();
                 String merr;
-                dd::submitDeviceMetrics(merr);
+                dd::submitDeviceMetrics(g_loopTaskHandle, merr);
             }
 
             long monitorId;
@@ -405,6 +426,13 @@ static void netTask(void*) {
 }
 
 void setup() {
+    // Must happen first thing in setup(), which runs on Arduino's own
+    // "loopTask" (core 1) — this is the one place that task's own handle is
+    // ever available to capture. Stashed for dd::submitDeviceMetrics() to
+    // read its stack headroom from netTask() (core 0); see g_loopTaskHandle's
+    // doc comment above.
+    g_loopTaskHandle = xTaskGetCurrentTaskHandle();
+
     Serial.begin(115200);
     delay(150);
     Serial.println("\n[boot] BarkBoard");
@@ -447,6 +475,18 @@ void setup() {
     ui::begin();
     display::tick();
 
+    // Diagnostic only (see logLvglMemTrend() above) — the true baseline,
+    // right after all six dashboard screens are built but before any user
+    // navigation, distinguishes "the resident screens alone already eat
+    // most of LV_MEM_SIZE" from "it only gets bad as you accumulate list
+    // rows/animations across screens" — two very different fixes.
+    {
+        lv_mem_monitor_t mon;
+        lv_mem_monitor(&mon);
+        Serial.printf("[lvgl] mem BASELINE (post ui::begin, pre-navigation) free=%u biggest=%u used_pct=%u%% frag_pct=%u%%\n",
+                      mon.free_size, mon.free_biggest_size, mon.used_pct, mon.frag_pct);
+    }
+
     netcfg::begin(onPortalEnter, onWiFiStatus);
 
     // Stack comes from FreeRTOS's task-stack heap allocation (pvPortMalloc
@@ -458,7 +498,25 @@ void setup() {
     xTaskCreatePinnedToCore(netTask, "dd-net", 10240, nullptr, 1, nullptr, 0);
 }
 
+// Diagnostic only — chasing a reported freeze on the SLO/On-Call screens
+// (UI fully unresponsive, netTask() on core 0 still running fine). Safe to
+// call lv_mem_monitor() here since it only ever runs on core 1, the one
+// core that owns LVGL's pool. Prints LV_MEM_SIZE's free bytes/fragmentation
+// every ~3s so the Serial log around the next freeze shows whether the pool
+// was trending toward exhaustion beforehand — see lv_conf.h's LV_USE_LOG
+// comment for why that's the leading theory.
+static void logLvglMemTrend() {
+    static uint32_t lastMs = 0;
+    if (millis() - lastMs < 3000) return;
+    lastMs = millis();
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    Serial.printf("[lvgl] mem free=%u biggest=%u used_pct=%u%% frag_pct=%u%%\n",
+                  mon.free_size, mon.free_biggest_size, mon.used_pct, mon.frag_pct);
+}
+
 void loop() {
+    logLvglMemTrend();
     netcfg::process();
 
     // Drain UI updates queued by the WiFi task (core 0).

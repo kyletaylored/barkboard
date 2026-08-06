@@ -385,10 +385,53 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
 // this file or is core-0-native (WiFi state), so none of it crosses that
 // line.
 //
-// Tagged device:<AP SSID> (the same "BarkBoard-XXXX" identifier already
-// shown during setup, via netcfg::apSsid()) and firmware_version:<the
-// BARKBOARD_VERSION build stamp> — enough to tell multiple devices apart if
-// more than one reports to the same org.
-bool submitDeviceMetrics(String& err);
+// Tagged service:barkboard (so this shows up under the normal Datadog
+// service convention, not just as an untagged custom metric), device:<AP
+// SSID> (the same "BarkBoard-XXXX" identifier already shown during setup,
+// via netcfg::apSsid()), and firmware_version:<the BARKBOARD_VERSION build
+// stamp>, plus static hardware tags (chip model/revision, CPU freq, flash
+// size, SDK version) and boot_reason:<the last esp_reset_reason(), e.g.
+// "panic"/"task_wdt"/"poweron"> — enough to tell multiple devices apart and
+// to slice metrics by "was this boot preceded by a crash" without a
+// separate query.
+//
+// Per-task stack headroom (uxTaskGetStackHighWaterMark()) is included for
+// the two tasks this project creates — the Arduino "loopTask" (core 1, LVGL)
+// and "dd-net" (core 0, this file) — as barkboard.task.stack_free, tagged
+// task:loop / task:dd-net. That call is a plain FreeRTOS kernel query (its
+// own internal locking makes it safe to call cross-core for another task's
+// handle) — not an LVGL call, so it doesn't cross the boundary described
+// above. loopTaskHandle must be captured once in setup() via
+// xTaskGetCurrentTaskHandle() (before FreeRTOS reassigns "current task" to
+// something else) and passed in here; this function calls
+// xTaskGetCurrentTaskHandle() itself to get dd-net's own handle, since it
+// always runs on that task.
+//
+// Per-task CPU% (what sysmon and ESP32-Task-Manager report) is NOT included
+// — confirmed against this project's pinned framework
+// (framework-arduinoespressif32@3.20016.0)'s prebuilt esp32 sdkconfig that
+// CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS and CONFIG_FREERTOS_USE_TRACE_FACILITY
+// are both off, so vTaskGetRunTimeStats()/uxTaskGetSystemState() aren't
+// available — and the FreeRTOS/IDF component here ships as a prebuilt
+// static lib for this target, not something a plain PlatformIO build
+// recompiles from source with different config. PSRAM stats are also
+// skipped — this specific board has none (see platformio.ini's
+// BOARD_HAS_PSRAM=0 build flag).
+bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err);
+
+// One-shot per boot (call once from netTask() after the first successful
+// connection, guarded by a local "already ran" bool — same pattern as this
+// file's team-scope auto-fetch), only while storage::getMetricsEnabled() is
+// on — Events are billable Datadog usage just like custom metrics, so the
+// caller must gate this behind the same opt-in toggle as
+// submitDeviceMetrics(), not fire it unconditionally. Reads
+// esp_reset_reason() and, only when it indicates the previous boot did NOT
+// end cleanly (panic, either watchdog, brownout — not a plain
+// esp_restart()/power-on), fires a Datadog Event (POST /api/v1/events,
+// still DD-API-KEY only) so a crash shows up as a discrete, alertable
+// occurrence rather than something you'd only notice by staring at a
+// reboot-count graph. Always returns true on a clean boot without making
+// any network call — nothing to report.
+bool reportBootEvent(String& err);
 
 }

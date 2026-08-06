@@ -36,7 +36,19 @@
 #define LV_USE_PERF_MONITOR 0
 #define LV_USE_MEM_MONITOR 0
 
-#define LV_USE_LOG 0
+// Was 0 (silent) — flipped on at WARN level to chase a reported freeze on
+// the SLO/On-Call screens where the UI goes fully unresponsive while
+// netTask() keeps running. LV_USE_ASSERT_MALLOC below means an exhausted
+// LV_MEM_SIZE pool hits LV_ASSERT_HANDLER (default: `while(1);`) — with
+// LV_USE_LOG off that's a completely silent, permanent hang (matches the
+// symptom exactly: no reset, since it's a tight spin not a fault, and this
+// board's sdkconfig doesn't watchdog-check core 1's idle task). At WARN
+// level this is one line ("Out of memory" or similar) right before any such
+// hang, printed via the Serial callback registered in display::begin() —
+// cheap enough to leave on rather than something to toggle per-debug-session.
+#define LV_USE_LOG 1
+#define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+#define LV_LOG_PRINTF 0
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1
 

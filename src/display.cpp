@@ -74,7 +74,15 @@ static void logDisplaySetup() {
                   s.tft_spi_freq * 100000, s.tft_rd_freq * 100000);
 }
 
+// Diagnostic only (see lv_conf.h's LV_USE_LOG comment) — chasing a reported
+// SLO/On-Call freeze suspected to be LVGL's LV_MEM_SIZE pool running out.
+static void lvglLogCb(const char* buf) {
+    Serial.printf("[lvgl] %s", buf);   // buf already ends in '\n'
+}
+
 void display::begin() {
+    lv_log_register_print_cb(lvglLogCb);
+
     tft.begin();
     tft.setRotation(1);
     logDisplaySetup();

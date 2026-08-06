@@ -343,10 +343,11 @@ static void sendStatus(const String& banner, bool err=false) {
     html += String("<option value=\"off\"") + (!metricsOn ? " selected" : "") + ">Off</option>";
     html += String("<option value=\"on\"")  + (metricsOn  ? " selected" : "") + ">On — send to this Datadog org</option>";
     html += "</select>";
-    html += "<div class=\"bb-note\">Sends a handful of device-health gauges (free heap, WiFi signal, uptime) back "
+    html += "<div class=\"bb-note\">Sends device-health gauges (heap, task stack headroom, WiFi signal, uptime) back "
             "to your own Datadog org every " + String(METRICS_INTERVAL_SEC) + "s, tagged <code>device:" +
-            htmlEscape(netcfg::apSsid()) + "</code> — because what's a Datadog dashboard without also monitoring "
-            "itself? Off by default.</div>";
+            htmlEscape(netcfg::apSsid()) + "</code>, and reports abnormal reboots (panic/watchdog/brownout) as a "
+            "Datadog Event — because what's a Datadog dashboard without also monitoring itself? Custom metrics and "
+            "Events are both billable Datadog usage, so both stay off unless you turn this on. Off by default.</div>";
     html += "<button type=\"submit\">Save preferences</button>";
     html += "</form></div>";
 
