@@ -345,10 +345,10 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 // compatibility guarantees /api/v2/ has; if this starts failing after a
 // Datadog platform change, that's the likely cause.
 //
-// One call (the most recent batch, no server-side team query), partitioned
-// client-side into team-tag matches first, then everything else — see the
-// implementation's comment for why this is a single request rather than a
-// team-scoped search plus a separate unscoped fallback.
+// One call, server-side team-scoped (same "team:x" convention as Monitors/
+// Incidents/SLOs) — see the implementation's comment for why scoping also
+// matters for keeping the response small enough to fetch reliably, not just
+// for correctness.
 bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err);
 const std::vector<BitsInvestigation>& lastBitsInvestigations();
 

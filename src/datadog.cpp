@@ -1280,37 +1280,36 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBi
 // ArduinoJson's filter semantics; parsing unfiltered sidesteps it rather
 // than chase the exact mechanism further.
 //
-// Single call, not a team-scoped search plus a separate unscoped fallback —
-// an investigation's tags come from whichever entity triggered it (a
-// monitor, in every case seen live, under entity.monitor_entity.tags[]),
-// not a property of the investigation itself, so a *server-side* team query
-// can genuinely come back empty even when the org has plenty under other
-// teams. Fetches the most recent batch (confirmed live as the API's own
-// default ordering, no explicit sort needed) and partitions client-side:
-// team-tag matches first, then everything else, both most-recent-first,
-// capped at 14 total.
+// Single call, server-side team-scoped (same "team:x" convention as
+// Monitors/Incidents/SLOs) — NOT the unscoped-plus-client-side-sort design
+// tried previously. That approach traded away real team filtering for no
+// good reason, and made the buffered-fetch overflow below worse in the
+// process: an unscoped fetch always has plenty of org-wide activity to fill
+// page_size with full-size items, whereas a team-scoped one naturally
+// returns fewer, smaller results (confirmed live: 3 investigations for a
+// team that has some, vs. always-8-full-items when unscoped) — so scoping
+// isn't just correctness, it's also what keeps the response small enough
+// for the buffered String fetch below to actually hold.
 //
-// page_size 8, not a bigger number to raise team-match odds — confirmed
-// live that 20 is too large for httpGetJsonRetrying's buffered path here:
-// HTTPClient's internal String buffer failed to grow enough to hold it
-// ("short write... failed" -> IncompleteInput/EmptyInput on both retry
-// attempts, not a network error), consistent with each item running
-// several KB unfiltered (narrative/hypotheses/timings/entity details this
-// screen never reads) times 20 items overflowing what a single contiguous
-// String can reliably hold on this device. 8 is a bit above the 6 the
-// diagnostic that root-caused the ArduinoJson filter issue used
-// successfully; raise cautiously (and re-verify live) if more headroom for
-// team matches turns out to be worth it.
+// page_size 8: confirmed live that 20 unscoped overflows
+// httpGetJsonRetrying's buffered String path outright ("short write...
+// failed" -> IncompleteInput on both retry attempts, not a network error),
+// consistent with each item running several KB unfiltered (narrative/
+// hypotheses/timings/entity details this screen never reads). 8 matches
+// what's worked live team-scoped; an unscoped fetch (blank team) can still
+// hit the same overflow at this size if the org is very active — reduce
+// further if that turns out to be a real problem, rather than raise it.
 bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
     String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=8";
+    String scope = monitorTeamScope();
+    if (scope.length()) url += "&query=" + urlEncode(scope);
+
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
-    String scope = monitorTeamScope();   // e.g. "team:ese-tola", or "" if none configured
-    std::vector<BitsInvestigation> matched, unmatched;
     for (JsonObject item : doc["data"]["attributes"]["response"]["investigations"].as<JsonArray>()) {
         BitsInvestigation inv;
         inv.id           = item["uuid"]               | "";
@@ -1318,17 +1317,9 @@ bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
         inv.status       = item["status"]             | "";
         inv.entitySource = item["entity"]["source"]   | "";
         inv.modifiedTs   = (uint32_t)parseIso8601ToEpochSec(item["modified_timestamp"] | "");
-
-        bool teamMatch = false;
-        if (scope.length()) {
-            for (JsonVariant t : item["entity"]["monitor_entity"]["tags"].as<JsonArray>()) {
-                if (t.as<String>() == scope) { teamMatch = true; break; }
-            }
-        }
-        (teamMatch ? matched : unmatched).push_back(inv);
+        out.push_back(inv);
+        if ((int)out.size() >= 14) break;   // same LVGL-pool-protecting cap as other lists
     }
-    for (const BitsInvestigation& inv : matched)   { if ((int)out.size() >= 14) break; out.push_back(inv); }
-    for (const BitsInvestigation& inv : unmatched) { if ((int)out.size() >= 14) break; out.push_back(inv); }
     g_lastBitsInvestigations = out;
     return true;
 }
