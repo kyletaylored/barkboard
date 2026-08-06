@@ -1270,40 +1270,25 @@ const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBi
 // top level (unlike the documented v2 list endpoint's JSON:API
 // id/attributes.* wrapping). Shared by fetchBitsInvestigations()'s
 // team-scoped attempt and its unscoped fallback.
+//
+// Deliberately unfiltered — an ArduinoJson::DeserializationOption::Filter
+// nested this deeply (data.attributes.response.investigations[].*) was
+// confirmed live to silently match zero items despite the real data being
+// present (HTTP 200, no parse error, just an empty result — indistinguishable
+// from "genuinely no investigations" without a raw unfiltered comparison,
+// which is exactly what caught this). Not fully root-caused against
+// ArduinoJson's filter semantics; parsing unfiltered sidesteps it rather
+// than chase the exact mechanism further. page_size trimmed 14->6 to keep
+// the now-uncapped-per-item parse cost bounded — each item unfiltered runs
+// several KB (narrative/hypotheses/timings/entity details this screen never
+// reads), and this list only shows a handful of rows anyway.
 static bool fetchBitsInvestigationsQuery(const String& query, std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
-    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=14";
+    String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=6";
     if (query.length()) url += "&query=" + urlEncode(query);
 
-    // TEMPORARY diagnostic: unfiltered + buffered, to tell apart "the filter
-    // is silently matching nothing" from "the device is actually getting a
-    // different/empty response than curl/fetch_dd.py saw" — both would look
-    // identical (HTTP 200, no parse error, empty investigations[]) with the
-    // filtered path alone. Remove once this is root-caused; the real fetch
-    // below is unaffected either way.
-    JsonDocument rawDoc;
-    String rawErr;
-    if (httpGetJsonRetrying(url, rawDoc, rawErr, nullptr, true)) {
-        JsonArray rawInv = rawDoc["data"]["attributes"]["response"]["investigations"].as<JsonArray>();
-        Serial.printf("[dd] investigations diagnostic: unfiltered parse found %u investigation(s)\n", (unsigned)rawInv.size());
-        if (rawInv.size() > 0) {
-            String firstItem;
-            serializeJson(rawInv[0], firstItem);
-            Serial.printf("[dd] investigations diagnostic: first item = %s\n", firstItem.c_str());
-        }
-    } else {
-        Serial.printf("[dd] investigations diagnostic: unfiltered fetch itself failed: %s\n", rawErr.c_str());
-    }
-
-    JsonDocument filter;
-    JsonObject itemFilter = filter["data"]["attributes"]["response"]["investigations"].add<JsonObject>();
-    itemFilter["uuid"] = true;
-    itemFilter["title"] = true;
-    itemFilter["status"] = true;
-    itemFilter["modified_timestamp"] = true;
-    itemFilter["entity"]["source"] = true;
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
 
     for (JsonObject item : doc["data"]["attributes"]["response"]["investigations"].as<JsonArray>()) {
         BitsInvestigation inv;
