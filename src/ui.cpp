@@ -241,6 +241,7 @@ static lv_obj_t* s_ocList = nullptr;
 static lv_obj_t* s_ocCurrentCard = nullptr;   // hero card for who's on call right now
 static lv_obj_t* s_ocCurrentIcon = nullptr;
 static lv_obj_t* s_ocCurrentName = nullptr;
+static lv_obj_t* s_ocCurrentEmail = nullptr;   // secondary line — the only other metadata this API actually returns for a responder (confirmed live: no schedule/shift-timing field exists here)
 static std::vector<dd::OnCallEntry> s_lastOnCall;
 static volatile bool s_oncallFetchPending = false;
 
@@ -1761,12 +1762,28 @@ static void buildOnCall() {
     lv_label_set_text(s_ocCurrentIcon, LV_SYMBOL_CALL);
     lv_obj_align(s_ocCurrentIcon, LV_ALIGN_LEFT_MID, 12, 0);
 
+    // Name + email as a two-line block, positioned (not LV_ALIGN_*_MID) so
+    // the block's own vertical center lands on the card's center to match
+    // the icon — outfit_bold_16/outfit_thin_12's real line heights are
+    // 17px/13px, so an 8px top offset centers the 32px-tall (17+2+13)
+    // block within this 48px-tall card. The old code gave the name label
+    // itself the *card's* height and centered that box, which visually
+    // pushed the text (drawn top-down within its own box, not centered in
+    // it) above the icon rather than level with it.
     s_ocCurrentName = lv_label_create(s_ocCurrentCard);
     lv_obj_set_style_text_font(s_ocCurrentName, &outfit_bold_16, 0);
     lv_obj_set_style_text_color(s_ocCurrentName, lv_color_white(), 0);
-    lv_obj_set_size(s_ocCurrentName, LIST_WIDTH - 44, OC_CARD_H - 12);
+    lv_obj_set_width(s_ocCurrentName, LIST_WIDTH - 44);
     lv_label_set_long_mode(s_ocCurrentName, LV_LABEL_LONG_DOT);
-    lv_obj_align(s_ocCurrentName, LV_ALIGN_LEFT_MID, 36, 0);
+    lv_obj_align(s_ocCurrentName, LV_ALIGN_TOP_LEFT, 36, 8);
+
+    s_ocCurrentEmail = lv_label_create(s_ocCurrentCard);
+    lv_obj_set_style_text_font(s_ocCurrentEmail, &outfit_thin_12, 0);
+    lv_obj_set_style_text_color(s_ocCurrentEmail, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(s_ocCurrentEmail, LV_OPA_70, 0);
+    lv_obj_set_width(s_ocCurrentEmail, LIST_WIDTH - 44);
+    lv_label_set_long_mode(s_ocCurrentEmail, LV_LABEL_LONG_DOT);
+    lv_obj_align(s_ocCurrentEmail, LV_ALIGN_TOP_LEFT, 36, 27);
 
     s_ocList = lv_list_create(s);
     lv_obj_set_size(s_ocList, LIST_WIDTH, SCREEN_HEIGHT - 24 - 24 - 12 - OC_CARD_H - OC_CARD_GAP);
@@ -1814,17 +1831,27 @@ void ui::notifyOnCallRefreshed(const std::vector<dd::OnCallEntry>& entries, bool
     // former get the hero card up top instead of blending into the dense
     // list at the same visual weight as everyone else in the policy.
     String currentNames;
+    String currentEmails;
     bool anyEscalation = false;
     for (const dd::OnCallEntry& e : entries) {
         if (e.escalationLevel == 0) {
             if (currentNames.length()) currentNames += " & ";
             currentNames += e.user.length() ? e.user : "(unassigned)";
+            // Skip when email is empty, or when it's literally what's
+            // already shown as the name (resolveOnCallUserName() falls
+            // back to email itself when the user has no display name) —
+            // no point repeating the same string on both lines.
+            if (e.email.length() && e.email != e.user) {
+                if (currentEmails.length()) currentEmails += " & ";
+                currentEmails += e.email;
+            }
         } else {
             anyEscalation = true;
         }
     }
     if (currentNames.length()) {
         lv_label_set_text(s_ocCurrentName, currentNames.c_str());
+        lv_label_set_text(s_ocCurrentEmail, currentEmails.c_str());
         lv_obj_clear_flag(s_ocCurrentCard, LV_OBJ_FLAG_HIDDEN);
     }
 
