@@ -31,23 +31,32 @@ static lv_indev_drv_t indev_drv;
 static void seedFakeDashboardData() {
     dd::MonitorCounts counts;
     dd::fetchMonitorCounts(counts);
+    ui::notifyMonitorCountsRefreshed();
 
     String merr;
     std::vector<dd::Monitor> monitors;
     dd::fetchMonitors(dd::getMonitorFilter(), monitors, merr);
+    ui::notifyMonitorsListRefreshed();
 
     String ierr;
     std::vector<dd::Incident> incidents;
     dd::fetchIncidents(incidents, ierr);
+    ui::notifyIncidentsRefreshed();
 
     String serr;
     std::vector<dd::SloSummary> slos;
     dd::fetchSlos(slos, serr);
+    ui::notifySlosRefreshed();
 
     std::vector<dd::OnCallEntry> oncall;
     String oerr;
-    dd::fetchOnCallForTeam("team-1", oncall, oerr);
-    ui::notifyOnCallRefreshed(oncall, /*hasTeams=*/true);
+    dd::fetchOnCallForTeamId("team-1", oncall, oerr);
+    ui::notifyOnCallRefreshed(oncall, /*hasTeams=*/true, /*needsTeamPick=*/false);
+
+    std::vector<dd::BitsInvestigation> investigations;
+    String berr;
+    dd::fetchBitsInvestigations(investigations, berr);
+    ui::notifyBitsInvestigationsRefreshed();
 }
 
 int main(int argc, char** argv) {

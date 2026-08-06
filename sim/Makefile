@@ -80,8 +80,18 @@ CXX_OBJS := $(foreach f,$(ALL_CXX_SRCS),$(call toobj_cpp,$(f)))
 
 TARGET := $(BUILD_DIR)/barkboard_sim
 
-.PHONY: all clean run
+.PHONY: all clean run help
 all: $(TARGET)
+
+# `make` with no target builds (matches the root Makefile's convention that
+# `make help` — not bare `make` — is how you list targets); this exists so
+# `make help` doesn't itself trigger a build first.
+help:
+	@echo "BarkBoard simulator targets:"
+	@echo "  make          - build the simulator (same as 'make all')"
+	@echo "  make run      - build (if needed) and launch the SDL window"
+	@echo "  make clean    - remove build/ (object files + the binary)"
+	@echo "  make help     - show this message"
 
 $(TARGET): $(C_OBJS) $(CXX_OBJS)
 	@mkdir -p $(dir $@)

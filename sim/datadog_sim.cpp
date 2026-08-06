@@ -15,6 +15,7 @@ MonitorCounts g_counts;
 std::vector<Monitor> g_monitors;
 std::vector<Incident> g_incidents;
 std::vector<SloSummary> g_slos;
+std::vector<BitsInvestigation> g_bitsInvestigations;
 String g_monitorFilter = "";
 
 void seedIfNeeded() {
@@ -74,6 +75,12 @@ void seedIfNeeded() {
     SloSummary s3; s3.id = "slo-003"; s3.name = "Search index freshness"; s3.type = "time_slice";
     s3.target = 99.0; s3.timeframe = "30d";
     g_slos = {s1, s2, s3};
+
+    BitsInvestigation b1; b1.id = "inv-001"; b1.title = "checkout-service p99 latency"; b1.status = "conclusive";
+    b1.entitySource = "MONITOR_ENTITY"; b1.modifiedTs = 1750002000;
+    BitsInvestigation b2; b2.id = "inv-002"; b2.title = "orders-db replication lag"; b2.status = "in progress";
+    b2.entitySource = "MONITOR_ENTITY"; b2.modifiedTs = 1750001500;
+    g_bitsInvestigations = {b1, b2};
 }
 
 } // namespace
@@ -164,18 +171,21 @@ bool dd::fetchSloStatus(const String& sloId, SloStatus& out, String& err) {
     return true;
 }
 
-bool dd::fetchTeams(std::vector<Team>& out, String& err, int limit) {
+bool dd::fetchMyTeams(std::vector<Team>& out, String& err) {
     Team t; t.id = "team-1"; t.name = "checkout";
     out = {t};
-    if ((int)out.size() > limit) out.resize(limit);
     err = "";
     return true;
 }
 
-bool dd::fetchOnCallForTeam(const String&, std::vector<OnCallEntry>& out, String& err) {
-    OnCallEntry e1; e1.user = "jane.doe"; e1.schedule = "checkout-primary"; e1.escalationLevel = 1;
-    OnCallEntry e2; e2.user = "sam.lee"; e2.schedule = "checkout-secondary"; e2.escalationLevel = 2;
-    out = {e1, e2};
+bool dd::fetchOnCallForTeamId(const String&, std::vector<OnCallEntry>& out, String& err) {
+    // escalationLevel == 0 is "current" (gets the Overview hero card) — see
+    // ui.cpp's notifyOnCallRefreshed(). One current responder plus a
+    // two-person escalation step, so the sim shows both UI states.
+    OnCallEntry e0; e0.user = "jane.doe"; e0.schedule = "Current"; e0.escalationLevel = 0;
+    OnCallEntry e1; e1.user = "sam.lee"; e1.schedule = "Escalation"; e1.escalationLevel = 1;
+    OnCallEntry e2; e2.user = "alex.kim"; e2.schedule = "Escalation"; e2.escalationLevel = 1;
+    out = {e0, e1, e2};
     err = "";
     return true;
 }
@@ -197,12 +207,35 @@ bool dd::fetchMetricSeries(const String&, uint32_t fromEpochSec, uint32_t toEpoc
     return true;
 }
 
-bool dd::fetchMonitorChartSeries(const Monitor& monitor, uint32_t fromEpochSec, uint32_t toEpochSec,
-                                  std::vector<MetricPoint>& out, String& err) {
-    if (monitor.type == "synthetics alert") {
-        out.clear();
-        err = "no metrics query for this monitor type (sim)";
-        return false;
-    }
-    return dd::fetchMetricSeries(monitor.query, fromEpochSec, toEpochSec, out, err);
+bool dd::fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
+    seedIfNeeded();
+    out = g_bitsInvestigations;
+    err = "";
+    return true;
 }
+const std::vector<BitsInvestigation>& dd::lastBitsInvestigations() { seedIfNeeded(); return g_bitsInvestigations; }
+
+bool dd::fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigationDetail& out, String& err) {
+    seedIfNeeded();
+    out = BitsInvestigationDetail();
+    for (const auto& b : g_bitsInvestigations) {
+        if (b.id == investigationId) {
+            out.title = b.title;
+            out.status = b.status;
+            out.conclusionTitle = "Root cause identified";
+            out.conclusionSummary = "Sim data — no real investigation was run.";
+            out.detailOk = true;
+            break;
+        }
+    }
+    err = "";
+    return true;
+}
+
+// Note: Monitor Detail's live chart (dd::fetchMonitorDetailAndChart() /
+// dd::lastMonitorDetailResult() in the real src/datadog.h) isn't simulated —
+// main_sim.cpp doesn't poll ui::monitorDetailRequestPending() the way the
+// real main.cpp's netTask() does, so tapping a monitor row in the sim
+// doesn't open Monitor Detail at all yet. Pre-existing gap, not something
+// this pass introduced; fetchMetricSeries() above is still here and correct
+// for any future work that wires that path up.

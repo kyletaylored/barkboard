@@ -87,4 +87,20 @@ struct ESPShim {
 };
 extern ESPShim ESP;
 
+// ---- FreeRTOS stand-ins -------------------------------------------------
+// ui.cpp guards a couple of flags shared with the real firmware's netTask()
+// (core 0) behind portMUX_TYPE critical sections — real cross-core state on
+// hardware, but the simulator is single-threaded, so these are safe no-ops
+// here rather than a real spinlock. TaskHandle_t only needs to exist as a
+// type: it shows up in datadog.h's submitDeviceMetrics() signature (pulled
+// in transitively via ui.h), which the simulator never calls — main.cpp and
+// datadog.cpp aren't compiled into the sim at all (see sim/Makefile; the sim
+// links datadog_sim.cpp/storage_sim.cpp instead), so no real implementation
+// is needed, just something for the declaration to parse against.
+typedef int  portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux)  ((void)(mux))
+typedef void* TaskHandle_t;
+
 #endif // __cplusplus
