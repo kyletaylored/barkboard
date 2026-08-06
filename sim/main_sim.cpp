@@ -17,6 +17,7 @@
 #include "storage.h"
 #include "config.h"
 
+#include <ctime>
 #include <vector>
 
 static lv_disp_draw_buf_t draw_buf;
@@ -59,6 +60,23 @@ static void seedFakeDashboardData() {
     ui::notifyBitsInvestigationsRefreshed();
 }
 
+// main.cpp's clock tick has a real equivalent here — the desktop system
+// clock is already correct with no NTP-sync gate needed, so this is
+// simpler than the firmware's version, but it's the same reason the clock
+// never showed up before this: nothing was ever calling ui::setClockText()
+// in the simulator at all, since that logic lived only in src/main.cpp,
+// which isn't compiled into the sim (see sim/Makefile).
+static void tickClock() {
+    static time_t lastTick = 0;
+    time_t now = time(nullptr);
+    if (lastTick != 0 && now - lastTick < 30) return;
+    lastTick = now;
+    struct tm tmu; localtime_r(&now, &tmu);
+    char buf[12];
+    strftime(buf, sizeof(buf), storage::getTimeFormat24h() ? "%H:%M" : "%I:%M %p", &tmu);
+    ui::setClockText(buf);
+}
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
 
@@ -85,11 +103,13 @@ int main(int argc, char** argv) {
     seedFakeDashboardData();
     ui::setStatusOnline(true);
     ui::showOverview();
+    tickClock();
 
     printf("[sim] BarkBoard simulator running. Click/drag with the mouse the way you'd touch the panel. Ctrl+C to quit.\n");
 
     while (1) {
         lv_timer_handler();
+        tickClock();
         SDL_Delay(5);
     }
     return 0;
