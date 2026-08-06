@@ -12,6 +12,7 @@ PORT ?= $(firstword $(wildcard /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART* /dev/
 
 .PHONY: help build upload monitor flash clean port erase-flash reflash \
         fetch-monitors fetch-incidents fetch-oncall fetch-slos fetch-event \
+        fetch-investigations fetch-investigation \
         flash-ledtest flash-3248s035-demo
 
 help:
@@ -53,6 +54,11 @@ help:
 	@echo "  make fetch-slos      -- --team my-team"
 	@echo "  make fetch-event     -- --monitor-id 12345   - full raw JSON of a monitor's"
 	@echo "                        most recent alert event (chart/snapshot data, etc.)"
+	@echo "  make fetch-investigations -- --team my-team   - search Bits AI investigations"
+	@echo "                        (an /api/unstable/ endpoint — see tools/fetch_dd.py's"
+	@echo "                        docstring for the compatibility caveat)"
+	@echo "  make fetch-investigation -- --id <uuid> [--summary-only]   - one investigation's"
+	@echo "                        full detail (documented, stable endpoint)"
 	@echo "                        The '--' is required — GNU Make parses '--team' as one"
 	@echo "                        of ITS OWN flags otherwise and errors before your script"
 	@echo "                        ever runs. (ARGS='--team my-team' still works too, if"
@@ -145,6 +151,16 @@ fetch-slos:
 # everything else too (chart/snapshot data, etc).
 fetch-event:
 	python3 tools/fetch_dd.py event $(filter-out $@,$(MAKECMDGOALS)) $(ARGS)
+
+# Bits AI investigations — `investigations` searches (an /api/unstable/
+# endpoint; see tools/fetch_dd.py's docstring for why that's fine to use but
+# not guaranteed stable), `investigation` fetches one by id via the
+# documented, stable per-id endpoint.
+fetch-investigations:
+	python3 tools/fetch_dd.py investigations $(filter-out $@,$(MAKECMDGOALS)) $(ARGS)
+
+fetch-investigation:
+	python3 tools/fetch_dd.py investigation $(filter-out $@,$(MAKECMDGOALS)) $(ARGS)
 
 # Swallows the extra command-line words captured above (--verify, --team,
 # ese-tola, etc.) so make doesn't try to build them as real targets.

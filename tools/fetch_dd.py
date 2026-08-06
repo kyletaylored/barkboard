@@ -5,20 +5,29 @@ as src/datadog.cpp — without needing to flash first. Pulls DD_API_KEY/
 DD_APP_KEY from .env at the repo root (or the environment); never prints
 their values.
 
-Subcommands mirror the four data screens:
-  monitors    /api/v1/monitor — grouped by type, raw + extracted chart query
-              (see Monitor Detail's dd::fetchMonitorChartSeries())
-  incidents   /api/v2/incidents/search?query=state:active[ teams:<team>]
-  oncall      /api/v2/team[?filter[keyword]=<team>], then
-              /api/v2/on-call/teams/{id}/on-call per team
-  slos        /api/v1/slo[?tags_query=team:<team>]
-  event       /api/v2/events/search?query=source:alert @monitor.id:<id> — a
-              monitor's most recent alert event, full raw JSON. This is the
-              ONLY thing the firmware's Events API call (inside
-              triggerBitsInvestigation()) actually looks up today, and it
-              only reads two fields out of it (evt.id, timestamp) — this
-              subcommand shows you everything else in there too (whether
-              there's chart/snapshot data worth using, etc).
+Subcommands mirror the data screens:
+  monitors        /api/v1/monitor/search — grouped by type, raw + extracted
+                  chart query (see Monitor Detail's dd::fetchMonitorChartSeries())
+  incidents       /api/v2/incidents/search?query=state:active[ teams:<team>]
+  oncall          /api/v2/team[?filter[keyword]=<team>], then
+                  /api/v2/on-call/teams/{id}/on-call per team
+  slos            /api/v1/slo/search[?query=team:<team>] — status/state
+                  included inline (see fetchSlos() in src/datadog.cpp)
+  event           /api/v2/events/search?query=source:alert @monitor.id:<id> —
+                  a monitor's most recent alert event, full raw JSON. This is
+                  the ONLY thing the firmware's Events API call (inside
+                  triggerBitsInvestigation()) actually looks up today, and it
+                  only reads two fields out of it (evt.id, timestamp) — this
+                  subcommand shows you everything else in there too (whether
+                  there's chart/snapshot data worth using, etc).
+  investigations  GET /api/unstable/bits-ai/investigation/search?query=team:<team>
+                  — an undocumented endpoint (the web UI's own investigations
+                  page uses it) that happens to accept the same DD-API-KEY/
+                  DD-APPLICATION-KEY auth as everything else here; see
+                  cmd_investigations()'s doc comment for the "can change
+                  without notice" caveat.
+  investigation   GET /api/v2/bits-ai/investigations/<uuid> — the documented,
+                  stable one — full detail on a single investigation by id.
 
 Examples, run from repo root:
   python3 tools/fetch_dd.py monitors
@@ -31,11 +40,16 @@ Examples, run from repo root:
                                                        # with zero teams
   python3 tools/fetch_dd.py slos --team my-team
   python3 tools/fetch_dd.py event --monitor-id 311012240
+  python3 tools/fetch_dd.py investigations --team my-team
+  python3 tools/fetch_dd.py investigation --id 1dca0bec-e879-4bf7-a357-6bf29a89a286
+  python3 tools/fetch_dd.py investigation --id 1dca0bec-e879-4bf7-a357-6bf29a89a286 --summary-only
   python3 tools/fetch_dd.py monitors --site datadoghq.eu
 
 Via the Makefile, extra flags go after `--`:
   make fetch-monitors -- --team my-team --raw
   make fetch-event -- --monitor-id 311012240
+  make fetch-investigations -- --team my-team
+  make fetch-investigation -- --id 1dca0bec-e879-4bf7-a357-6bf29a89a286 --summary-only
 """
 import argparse
 import json
@@ -284,23 +298,30 @@ def cmd_oncall(dd, args):
 
 
 def cmd_slos(dd, args):
+    # /api/v1/slo/search, not /api/v1/slo — matches fetchSlos() in
+    # src/datadog.cpp, which switched to the search endpoint specifically
+    # because it returns each SLO's live status (state/sli) inline, letting
+    # the device color a status dot without an extra per-SLO call.
     team = bare_team(args.team)
-    params = {"limit": args.limit}
+    params = {"page[size]": args.limit}
     if team:
-        params["tags_query"] = f"team:{team}"
+        params["query"] = f"team:{team}"
     print(f"params: {params}")
 
     try:
-        resp = dd_get(*dd, "/api/v1/slo", params)
+        resp = dd_get(*dd, "/api/v1/slo/search", params)
     except urllib.error.HTTPError as e:
-        print(f"error: GET /api/v1/slo -> HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+        print(f"error: GET /api/v1/slo/search -> HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
         sys.exit(1)
 
-    slos = resp.get("data", [])
-    for s in slos:
-        print(f"\n  #{s.get('id')}  {s.get('name')!r}")
-        print(f"    type: {s.get('type')}  target: {s.get('target_threshold')}  timeframe: {s.get('timeframe')}")
-        print(f"    tags: {s.get('tags')}")
+    slos = resp.get("data", {}).get("attributes", {}).get("slos", [])
+    for item in slos:
+        s = item.get("data", {})
+        a = s.get("attributes", {})
+        status = a.get("status", {})
+        print(f"\n  #{s.get('id')}  {a.get('name')!r}")
+        print(f"    type: {a.get('slo_type')}  target: {a.get('target_threshold')}  timeframe: {a.get('timeframe')}")
+        print(f"    state: {status.get('state')}  sli: {status.get('sli')}")
 
     print(f"\n{len(slos)} SLO(s) returned.")
 
@@ -353,6 +374,65 @@ def cmd_event(dd, args):
         print(json.dumps(e, indent=2))
 
 
+def cmd_investigations(dd, args):
+    """Mirrors dd::fetchBitsInvestigations() in src/datadog.cpp exactly —
+    same endpoint, same query. This is an /api/unstable/ endpoint (the web
+    UI's own investigations page uses it) — confirmed live it accepts plain
+    DD-API-KEY/DD-APPLICATION-KEY auth, but it isn't covered by Datadog's
+    /api/v2/ compatibility guarantees and can change or disappear without
+    notice. If this subcommand starts failing where it used to work, that's
+    the first thing to suspect, not a bug in the device's request."""
+    team = bare_team(args.team)
+    params = {"page_size": args.limit}
+    if team:
+        params["query"] = f"team:{team}"
+    print(f"params: {params}")
+
+    try:
+        resp = dd_get(*dd, "/api/unstable/bits-ai/investigation/search", params)
+    except urllib.error.HTTPError as e:
+        print(f"error: GET /api/unstable/bits-ai/investigation/search -> HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+        sys.exit(1)
+
+    investigations = resp.get("data", {}).get("attributes", {}).get("response", {}).get("investigations", [])
+    for inv in investigations:
+        print(f"\n  {inv.get('uuid')}  {inv.get('title', '')!r}")
+        print(f"    status: {inv.get('status')}  entity: {inv.get('entity', {}).get('source')}  modified: {inv.get('modified_timestamp')}")
+
+    total = resp.get("data", {}).get("attributes", {}).get("response", {}).get("metadata", {}).get("total_results")
+    print(f"\n{len(investigations)} investigation(s) returned (total matching: {total}). "
+          f"Pass a uuid to `fetch_dd.py investigation --id <uuid>` for full detail.")
+
+
+def cmd_investigation(dd, args):
+    """Mirrors dd::fetchBitsInvestigationDetail() in src/datadog.cpp — same
+    endpoint (the documented, stable GET /api/v2/bits-ai/investigations/{id}),
+    but dumps the full raw JSON by default, including conclusions[].description
+    (a multi-KB markdown wall of text per conclusion — the device deliberately
+    doesn't fetch or show this, only title/summary; --summary-only mimics
+    exactly what the device actually pulls out of this response)."""
+    try:
+        resp = dd_get(*dd, f"/api/v2/bits-ai/investigations/{args.id}")
+    except urllib.error.HTTPError as e:
+        print(f"error: GET /api/v2/bits-ai/investigations/{args.id} -> HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.summary_only:
+        a = resp.get("data", {}).get("attributes", {})
+        print(f"title:  {a.get('title')!r}")
+        print(f"status: {a.get('status')}")
+        conclusions = a.get("conclusions", [])
+        if conclusions:
+            c = conclusions[0]
+            print(f"conclusion title:   {c.get('title')!r}")
+            print(f"conclusion summary: {c.get('summary')!r}")
+        else:
+            print("(no conclusions yet)")
+        return
+
+    print(json.dumps(resp, indent=2))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site", default=os.environ.get("DD_SITE", "datadoghq.com"),
@@ -388,6 +468,18 @@ def main():
     p_evt.add_argument("--days", type=int, default=7, help="how far back to search (default 7 days)")
     p_evt.add_argument("--limit", type=int, default=1, help="how many recent events to show (default 1 — just the latest)")
     p_evt.set_defaults(func=cmd_event)
+
+    p_invs = sub.add_parser("investigations", help="search Bits AI investigations (Bits screen debugging) — "
+                                                     "hits an /api/unstable/ endpoint, see cmd_investigations' docstring")
+    p_invs.add_argument("--team", default="", help="team value — applied as 'team:<value>' like the device does")
+    p_invs.set_defaults(func=cmd_investigations)
+
+    p_inv = sub.add_parser("investigation", help="fetch one Bits AI investigation's full detail by id")
+    p_inv.add_argument("--id", required=True, help="investigation uuid, e.g. from `fetch_dd.py investigations`")
+    p_inv.add_argument("--summary-only", action="store_true",
+                        help="print just title/status/top-conclusion — exactly what the device actually shows, "
+                             "instead of the full raw JSON (which includes each conclusion's full description)")
+    p_inv.set_defaults(func=cmd_investigation)
 
     args = ap.parse_args()
 
