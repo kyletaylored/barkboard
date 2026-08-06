@@ -88,6 +88,9 @@ struct SloStatus {
 
 struct OnCallEntry {
     String user;
+    String email;   // "" when the user resource has no email or wasn't found —
+                     // shown as secondary metadata on the Overview hero card,
+                     // not currently used for the plain escalation rows.
     String schedule;
     int    escalationLevel = 0;
 };
@@ -214,7 +217,20 @@ bool muteMonitor(long monitorId, uint32_t untilEpochSec, String& err);
 // NOT verified against a live call, same caveat as muteMonitor().
 bool unmuteMonitor(long monitorId, String& err);
 
-bool fetchIncidents(std::vector<Incident>& out, String& err, int limit = 14);
+// Default capped well below the usual 14-row LVGL-pool-protecting limit —
+// confirmed live that individual incident objects here run ~10-12KB each
+// (customer_impact_scope, notification_handles, a nested last_modified_by
+// user object, etc. — none of which this app reads), so page_size=14 (or
+// even 10) can push the raw response into the ~120-130KB range, which
+// overflows HTTPClient's buffered String growth (see the "HTTPClient
+// buffered-fetch size limits" note in BARKBOARD_PLAN.md §11 — same failure
+// class, `json: IncompleteInput`, confirmed live again here). Tried a
+// sparse-fieldset query param (fields[incidents]=...) hoping the server
+// would send less — confirmed live it doesn't change the response size at
+// all, so page_size is the only real lever. 5 items keeps the confirmed-
+// live response size (~68KB) with real margin below the ~131KB that just
+// failed, not just barely under it.
+bool fetchIncidents(std::vector<Incident>& out, String& err, int limit = 5);
 const std::vector<Incident>& lastIncidents();
 
 // Cycle to the next state in the default Active -> Stable -> Resolved chain

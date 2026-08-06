@@ -721,7 +721,10 @@ bool fetchOnCallForTeamId(const String& teamId, std::vector<OnCallEntry>& out, S
 
     for (JsonObject ref : doc["data"]["relationships"]["responders"]["data"].as<JsonArray>()) {
         OnCallEntry e;
-        e.user = resolveOnCallUserName(included, ref["id"] | "");
+        String userId = ref["id"] | "";
+        e.user = resolveOnCallUserName(included, userId);
+        JsonObject u = findIncluded(included, userId, "users");
+        e.email = u["attributes"]["email"] | "";
         e.schedule = "Current";
         e.escalationLevel = 0;
         out.push_back(e);

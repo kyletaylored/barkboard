@@ -182,7 +182,7 @@ bool dd::fetchOnCallForTeamId(const String&, std::vector<OnCallEntry>& out, Stri
     // escalationLevel == 0 is "current" (gets the Overview hero card) — see
     // ui.cpp's notifyOnCallRefreshed(). One current responder plus a
     // two-person escalation step, so the sim shows both UI states.
-    OnCallEntry e0; e0.user = "jane.doe"; e0.schedule = "Current"; e0.escalationLevel = 0;
+    OnCallEntry e0; e0.user = "jane.doe"; e0.email = "jane.doe@example.com"; e0.schedule = "Current"; e0.escalationLevel = 0;
     OnCallEntry e1; e1.user = "sam.lee"; e1.schedule = "Escalation"; e1.escalationLevel = 1;
     OnCallEntry e2; e2.user = "alex.kim"; e2.schedule = "Escalation"; e2.escalationLevel = 1;
     out = {e0, e1, e2};
