@@ -37,6 +37,15 @@ struct Monitor {
     double criticalThreshold = NAN;
     double warningThreshold  = NAN;
     bool   thresholdsApplicable = false;
+    // Only populated by fetchMonitorDetail(), and only for monitors using
+    // the newer "formula(...) + options.variables[]" query style (confirmed
+    // live: a real log-alert monitor's `query` was literally
+    // formula("moving_rollup(query, 300, 'avg')").last("5m") > 100, with no
+    // logs("...")-embedded string to extract at all — the actual search
+    // string lives here instead). Empty for monitors that don't use this
+    // style; fetchNonMetricChartSeries() falls back to the legacy embedded-
+    // string extraction (extractWrappedQuery()) when this is blank.
+    String variableSearchQuery;
 };
 
 struct Incident {

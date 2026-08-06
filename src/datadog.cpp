@@ -450,20 +450,16 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
     String url = apiBase() + "/api/v1/monitor/" + String(monitorId);
-    // Single-monitor GET includes the full templated alert `message` body
-    // and other fields we never read — filter it out.
-    JsonDocument filter;
-    filter["id"] = true;
-    filter["name"] = true;
-    filter["overall_state"] = true;
-    filter["query"] = true;
-    filter["type"] = true;
-    filter["tags"] = true;
-    filter["options"]["silenced"] = true;
-    filter["options"]["thresholds"]["critical"] = true;
-    filter["options"]["thresholds"]["warning"] = true;
+    // Unfiltered, not the previous field-filtered fetch — a nested array
+    // filter (needed below for options.variables[]) is the same shape
+    // confirmed live to silently match zero items elsewhere in this file
+    // (HTTP 200, no parse error, just an empty result indistinguishable
+    // from "this monitor has no variables"). This payload only runs ~1-1.5KB
+    // even unfiltered (confirmed against a real monitor), nowhere near the
+    // multi-KB-per-item cost that made unfiltered parsing worth avoiding for
+    // the Bits investigations list — not worth the filter risk here either.
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying(url, doc, err)) return false;
 
     out.id     = doc["id"]             | monitorId;
     out.name   = doc["name"]           | "";
@@ -479,6 +475,19 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
     // somewhere. Not verified live (no muted monitor in the test org at the
     // time this was written) — best-effort against the documented shape.
     out.muted = doc["options"]["silenced"].as<JsonObject>().size() > 0;
+    // Newer "formula(...) + options.variables[]" monitor query style —
+    // confirmed live against a real log-alert monitor whose top-level
+    // `query` is literally formula("moving_rollup(query, 300, 'avg')")
+    // .last("5m") > 100, with the actual chartable search string buried in
+    // variables[0].search.query instead of embedded as logs("...") the way
+    // extractWrappedQuery() expects. Only the first variable is read — this
+    // org's real monitors only ever define one, and a multi-variable
+    // formula monitor's chart wouldn't map cleanly onto a single search
+    // string anyway. Left blank (checked via .length() by
+    // fetchNonMetricChartSeries()) for the many monitors that don't use
+    // this style at all, so the legacy embedded-string extraction still
+    // applies to those.
+    out.variableSearchQuery = doc["options"]["variables"][0]["search"]["query"] | "";
     JsonVariant crit = doc["options"]["thresholds"]["critical"];
     JsonVariant warn = doc["options"]["thresholds"]["warning"];
     out.criticalThreshold = crit.is<double>() ? crit.as<double>() : NAN;
@@ -1100,7 +1109,14 @@ static bool fetchNonMetricChartSeries(const Monitor& monitor, const char* wrappe
                                        const char* kindNameForError,
                                        std::vector<MetricPoint>& out, String& err) {
     out.clear();
-    String q = extractWrappedQuery(monitor.query, wrapperPrefix);
+    // Prefer the newer formula(...)+options.variables[] style's search
+    // query (fetchMonitorDetail() only populates this when present) over
+    // the legacy embedded-string extraction — confirmed live a real
+    // log-alert monitor uses the former exclusively, with nothing for
+    // extractWrappedQuery() to find in its raw `query` at all.
+    String q = monitor.variableSearchQuery.length()
+        ? monitor.variableSearchQuery
+        : extractWrappedQuery(monitor.query, wrapperPrefix);
     if (q.length() == 0) { err = String("no search query found in this monitor's ") + kindNameForError + " query"; return false; }
 
     uint32_t to, from;
