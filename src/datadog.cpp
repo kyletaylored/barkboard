@@ -1275,6 +1275,26 @@ static bool fetchBitsInvestigationsQuery(const String& query, std::vector<BitsIn
     String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=14";
     if (query.length()) url += "&query=" + urlEncode(query);
 
+    // TEMPORARY diagnostic: unfiltered + buffered, to tell apart "the filter
+    // is silently matching nothing" from "the device is actually getting a
+    // different/empty response than curl/fetch_dd.py saw" — both would look
+    // identical (HTTP 200, no parse error, empty investigations[]) with the
+    // filtered path alone. Remove once this is root-caused; the real fetch
+    // below is unaffected either way.
+    JsonDocument rawDoc;
+    String rawErr;
+    if (httpGetJsonRetrying(url, rawDoc, rawErr, nullptr, true)) {
+        JsonArray rawInv = rawDoc["data"]["attributes"]["response"]["investigations"].as<JsonArray>();
+        Serial.printf("[dd] investigations diagnostic: unfiltered parse found %u investigation(s)\n", (unsigned)rawInv.size());
+        if (rawInv.size() > 0) {
+            String firstItem;
+            serializeJson(rawInv[0], firstItem);
+            Serial.printf("[dd] investigations diagnostic: first item = %s\n", firstItem.c_str());
+        }
+    } else {
+        Serial.printf("[dd] investigations diagnostic: unfiltered fetch itself failed: %s\n", rawErr.c_str());
+    }
+
     JsonDocument filter;
     JsonObject itemFilter = filter["data"]["attributes"]["response"]["investigations"].add<JsonObject>();
     itemFilter["uuid"] = true;
