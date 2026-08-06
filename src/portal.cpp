@@ -90,7 +90,7 @@ static const char PAGE_HEAD[] PROGMEM = R"HTML(
   .bb-chip .dot{width:6px;height:6px;border-radius:1px;background:var(--purple);display:inline-block}
 
   .bb-main{flex:1;padding:32px 18px}
-  .bb-main-inner{max-width:960px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  .bb-main-inner{max-width:960px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
   .bb-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}
   .bb-card-wide{grid-column:1 / -1}
   .bb-card-danger{border-color:var(--alert-border)}
@@ -276,7 +276,7 @@ static void sendStatus(const String& banner, bool err=false) {
     }
 
     // Status first — the thing you actually look at this page to check.
-    html += "<div class=\"bb-card\"><div class=\"bb-kvs\">";
+    html += "<div class=\"bb-card\"><div class=\"bb-section\">Device Info</div><div class=\"bb-kvs\">";
     html += "<b>SSID</b><span>" + htmlEscape(WiFi.SSID()) + "</span>";
     html += "<b>IP</b><span>" + WiFi.localIP().toString() + "</span>";
     html += "<b>RSSI</b><span>" + String(WiFi.RSSI()) + " dBm</span>";
@@ -299,8 +299,8 @@ static void sendStatus(const String& banner, bool err=false) {
         html += "<button type=\"submit\">Save</button>";
         html += "</form>";
     } else {
-        html += "<div class=\"bb-sub\">Both keys are saved on this device. "
-                "<button type=\"button\" class=\"bb-linklike\" onclick=\"location.href='/?edit=keys'\">Change keys</button></div>";
+        html += "<div class=\"bb-sub\">Both keys are saved on this device.</div>";
+        html += "<button type=\"button\" class=\"bb-btn-outline\" onclick=\"location.href='/?edit=keys'\">Change keys</button>";
     }
     html += "</div>";
 
