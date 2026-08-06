@@ -104,9 +104,10 @@ namespace ui {
     void showSloDetail(const dd::SloSummary& summary, const dd::SloStatus& status, bool statusOk);
 
     // Bits AI Investigations (dashboard rotation) — list reads
-    // dd::lastBitsInvestigations(), one search call scoped to the team (see
-    // dd::fetchBitsInvestigations()'s doc comment for the /api/unstable/
-    // endpoint this uses and why). Tapping a row requests full detail via
+    // dd::lastBitsInvestigations(), the most recent investigations org-wide
+    // (not team-scoped — see dd::fetchBitsInvestigations()'s doc comment
+    // for the /api/unstable/ endpoint this uses and why team scoping was
+    // actually hiding real results). Tapping a row requests full detail via
     // the documented per-id GET.
     bool bitsInvestigationsFetchPending();
     void notifyBitsInvestigationsRefreshed();

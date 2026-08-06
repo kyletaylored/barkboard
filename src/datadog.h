@@ -337,15 +337,19 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 // endpoint (the web UI's own investigations page uses it), NOT the
 // documented /api/v2/bits-ai/investigations list endpoint, which only
 // supports filter[monitor_id] (one monitor at a time, no team/broad facet —
-// confirmed against docs.datadoghq.com) and can't be scoped to "our team"
-// in a single call. This one takes a real search query (same "team:x"
-// convention as monitors/incidents) and returns richer per-item data
+// confirmed against docs.datadoghq.com). Returns richer per-item data
 // (status, entity source, modified timestamp) in one request instead of a
 // fan-out of one GET per monitor. Confirmed live it accepts the standard
 // DD-API-KEY/DD-APPLICATION-KEY headers despite the /api/unstable/ path —
 // but that also means Datadog can change or remove it without the
 // compatibility guarantees /api/v2/ has; if this starts failing after a
 // Datadog platform change, that's the likely cause.
+//
+// Deliberately NOT scoped by team, unlike Monitors/Incidents/SLOs — see the
+// implementation's comment for why that filter, though it accepts the same
+// "team:x" syntax, was actually just hiding real investigations (their tags
+// come from the triggering entity, not the investigation itself, and most
+// don't carry a team tag at all). Just the most recent ones instead.
 bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err);
 const std::vector<BitsInvestigation>& lastBitsInvestigations();
 

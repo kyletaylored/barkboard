@@ -1273,9 +1273,19 @@ bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     // data.attributes.response.investigations[] — each item has uuid/title/
     // status/entity.source/modified_timestamp at its top level (unlike the
     // documented v2 list endpoint's JSON:API id/attributes.* wrapping).
+    //
+    // Deliberately NOT scoped by team:x here, unlike Monitors/Incidents/
+    // SLOs — confirmed live this was the actual cause of an empty Bits
+    // screen while `make fetch-investigations --team x` returned real
+    // results: an investigation's tags come from whichever entity
+    // triggered it (a monitor, in every case seen live), not a property of
+    // the investigation itself, and plenty of real monitors carry no
+    // team:x tag at all. Scoping by team silently returned zero rows
+    // instead of surfacing that mismatch. Most-recent-first ordering
+    // (confirmed live as the API's own default, no explicit sort param
+    // needed) plus the page_size cap below does the job of keeping this
+    // screen relevant without team scoping.
     String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=14";
-    String scope = monitorTeamScope();
-    if (scope.length()) url += "&query=" + urlEncode(scope);
 
     JsonDocument filter;
     JsonObject itemFilter = filter["data"]["attributes"]["response"]["investigations"].add<JsonObject>();
