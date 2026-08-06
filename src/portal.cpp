@@ -15,43 +15,162 @@ static WebServer server(PORTAL_HTTP_PORT);
 static const char PAGE_HEAD[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BarkBoard</title>
+<title>BarkBoard &middot; setup</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAAUCAYAAACAl21KAAACZ0lEQVR4nHWUS4iPURjGf2dmiEbuksskSVmwmo2FskCTkpJGURY2NqJkMwu5lJKNLORSrCgLIRaiZKNkipIsFLlNM+6XpnEbM/PTO/P+xzfDvPX1nfN95zzned/neQ9qAVCnqRMYI9Qj6nt1e87r/rdon9qp3lLnq1PUPep5dbd6zKG4rvapLbmvvgrS5t94rnapb/w3etS96ok8tG4EK7Vb7VX71Xvqo9z4K999OY7/7cm2VR1fzSoQbwLjctwEtAc+EAu7c12Mo5Z3geWllIvA79FA24D48RE4CjzJTWeB6cDlGnngQ4CqDWMpUq8eVHepHZnSSXWD+lAdyBQjfqgLRytXUv444Tkwfyz5GWLUmcyD9VZgIL6XUhyWUL2WJ0bhazFQEeKLuijXPlWbMpMhVjkJZqvVTxWQrpS8Gq/VB+rLUaUpNVfXlVLi9OXAbWAi8Am4CjQCa4Be4DgwA/gJdAHLgGbg3GD1E6ShlBI+egCsAD4DT4HXwCXgO7AJWAXMScXJA2cNAmWeUYeYz8zCvgPmAoeBXylIrSX6KkA7gaVh8xKMBisPp4El6aOmNF1/BaQ3lVoJtAFX8hlmNAm4kAtuJFiw+ZYnB/BXYCpwqpQSDr+bmQy2Sm3RGWBdfmxOV3cAk/P//SzsemDvsAmHMonC94TsUZO3FTXr03ABPhvYCLSUUp5V5I57ax4QvgqXt0Zqoc4hYH8WMZ5I7XEyixQb1c3AgpQ/mjyYhCCvgB0BFMU+oC4GtlS6elwp5av6AlibNriTG9+UUkKEEa4M5cLdYfn7efdEu0z873U6stEbam3yB+i4DQ1sJV6WAAAAAElFTkSuQmCC">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+(function () {
+  var stored = null;
+  try { stored = localStorage.getItem('bb-theme'); } catch (e) {}
+  var mode = stored || 'auto';
+  var dark = mode === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme-mode', mode);
+})();
+</script>
 <style>
-:root{--bg:#0B0B10;--panel:#16151C;--ink:#F2F0F5;--mut:#B5B2C0;--ok:#3FB950;--err:#F0506E;--accent:#632CA6}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(ellipse at top,#1a0e2a,#0B0B10);color:var(--ink);min-height:100vh}
-.wrap{max-width:520px;margin:0 auto;padding:28px 18px}
-.brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.dot{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
-.brand h1{font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);margin:0}
-.title{font-weight:800;font-size:30px;letter-spacing:-.5px;color:var(--accent);margin:6px 0 4px}
-.sub{color:var(--mut);font-size:13px;margin-bottom:22px}
-.card{background:var(--panel);border:1px solid #26242E;border-radius:14px;padding:18px}
-label{display:block;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:14px 0 6px}
-input[type=text],input[type=password]{
- width:100%;padding:12px 14px;border-radius:10px;border:1px solid #26242E;background:#0a0a0f;color:var(--ink);font-size:15px;outline:none;font-family:monospace}
-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,44,166,.25)}
-button{appearance:none;border:0;background:linear-gradient(180deg,#8000FF,#632CA6);color:#fff;font-weight:800;
- padding:12px 16px;border-radius:10px;cursor:pointer;width:100%;margin-top:18px;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
-button.secondary{background:#26242E;color:var(--ink);font-weight:600}
-.note{margin-top:16px;color:var(--mut);font-size:12px;line-height:1.5}
-.kvs{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;color:var(--ink)}
-.kvs b{color:var(--mut);font-weight:500}
-.banner{margin:12px 0;padding:10px 12px;border-radius:10px;background:#173523;color:#aef0c0;border:1px solid #235a38;font-size:13px}
-.banner.err{background:#3a1620;color:#ffb6bb;border-color:#5a1d2a}
-hr{border:0;border-top:1px solid #26242E;margin:18px 0}
-small{color:var(--mut)}
-.chk{display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--mut);margin:10px 0 0}
-.chk input{width:auto;margin:0}
-select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid #26242E;background:#0a0a0f;color:var(--ink);font-size:15px}
-.section{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;display:flex;align-items:center;justify-content:space-between}
-.pill{font-size:11px;letter-spacing:.04em;text-transform:none;padding:3px 9px;border-radius:100px;background:#173523;color:#aef0c0}
-.danger{border-color:#3a1620}
-.danger button.secondary{background:#3a1620;color:#ffb6bb}
-.linklike{background:none;border:0;color:var(--accent);font-size:13px;font-weight:700;text-transform:none;letter-spacing:0;padding:0;margin:0;width:auto;cursor:pointer}
-</style></head><body><div class="wrap">
-<div class="brand"><span class="dot"></span><h1>BarkBoard &middot; setup</h1></div>
+  :root{
+    --purple: oklch(0.62 0.23 302);
+    --purple-soft: oklch(0.62 0.23 302 / 0.14);
+    --purple-border: oklch(0.62 0.23 302 / 0.3);
+    --ok: oklch(0.72 0.17 150);
+    --ok-soft: oklch(0.72 0.17 150 / 0.14);
+    --ok-border: oklch(0.72 0.17 150 / 0.35);
+    --warn: oklch(0.78 0.15 85);
+    --alert: oklch(0.63 0.21 25);
+    --alert-soft: oklch(0.63 0.21 25 / 0.14);
+    --alert-border: oklch(0.5 0.15 25 / 0.5);
+
+    --bg: oklch(0.13 0.012 285);
+    --bg-dot: oklch(0.28 0.02 285);
+    --surface: oklch(0.17 0.015 285);
+    --border: oklch(0.28 0.02 285);
+    --chip-bg: oklch(0.19 0.016 285);
+    --ink: oklch(0.85 0.006 285);
+    --ink-strong: oklch(0.97 0.004 285);
+    --ink-muted: oklch(0.68 0.02 285);
+    --ink-dim: oklch(0.5 0.015 285);
+  }
+  :root[data-theme="light"]{
+    --bg: oklch(0.95 0.006 285);
+    --bg-dot: oklch(0.86 0.012 285);
+    --surface: oklch(0.99 0.003 285);
+    --border: oklch(0.87 0.01 285);
+    --chip-bg: oklch(0.93 0.006 285);
+    --ink: oklch(0.3 0.015 285);
+    --ink-strong: oklch(0.15 0.015 285);
+    --ink-muted: oklch(0.42 0.018 285);
+    --ink-dim: oklch(0.58 0.015 285);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;min-height:100vh;display:flex;flex-direction:column;
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    color:var(--ink);background-color:var(--bg);
+    background-image:radial-gradient(var(--bg-dot) 1px, transparent 1px), radial-gradient(ellipse 900px 500px at 50% -10%, oklch(0.3 0.09 302 / 0.28), transparent);
+    background-size:22px 22px, 100% 100%;
+  }
+  a{color:var(--purple)}
+  button{font-family:inherit}
+  code{font-family:'JetBrains Mono',monospace}
+
+  .bb-header{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:18px 28px;border-bottom:1px solid var(--border);background:var(--surface);
+  }
+  .bb-wordmark{font-family:'Press Start 2P',monospace;font-size:16px;letter-spacing:1px;color:var(--ink-strong)}
+  .bb-wordmark span{color:var(--purple)}
+  .bb-chip{
+    display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-muted);background:var(--chip-bg);border:1px solid var(--border);border-radius:6px;padding:5px 9px 5px 8px;
+  }
+  .bb-chip .dot{width:6px;height:6px;border-radius:1px;background:var(--purple);display:inline-block}
+
+  .bb-main{flex:1;padding:32px 18px}
+  .bb-main-inner{max-width:960px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  .bb-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}
+  .bb-card-wide{grid-column:1 / -1}
+  .bb-card-danger{border-color:var(--alert-border)}
+  @media (max-width: 700px){
+    .bb-main-inner{grid-template-columns:1fr}
+  }
+
+  .bb-section{
+    font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);
+    margin:0 0 14px;display:flex;align-items:center;justify-content:space-between;
+  }
+  .bb-pill{
+    font-size:11px;letter-spacing:.04em;text-transform:none;padding:3px 10px;border-radius:999px;
+    background:var(--ok-soft);border:1px solid var(--ok-border);color:var(--ok);
+  }
+  .bb-sub{color:var(--ink-muted);font-size:13px;line-height:1.5}
+  .bb-note{margin-top:10px;color:var(--ink-dim);font-size:12.5px;line-height:1.55}
+
+  label{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin:16px 0 6px}
+  label:first-of-type{margin-top:0}
+  input[type=text],input[type=password]{
+    width:100%;padding:11px 14px;border-radius:9px;border:1px solid var(--border);background:var(--bg);
+    color:var(--ink);font-size:14px;outline:none;font-family:'JetBrains Mono',monospace;
+  }
+  input:focus{border-color:var(--purple);box-shadow:0 0 0 3px var(--purple-soft)}
+  select{
+    width:100%;padding:10px 14px;border-radius:9px;border:1px solid var(--border);background:var(--bg);
+    color:var(--ink);font-size:14px;font-family:inherit;
+  }
+  input[type=checkbox],input[type=radio]{accent-color:var(--purple)}
+  .bb-radio-list{display:grid;gap:8px;margin-top:2px}
+  .bb-radio{
+    display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;text-transform:none;letter-spacing:0;
+    color:var(--ink);background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px 14px;cursor:pointer;
+  }
+  .bb-radio:has(input:checked){border-color:var(--purple);background:var(--purple-soft)}
+  .bb-radio input{width:auto;margin:0}
+  .bb-radio-handle{color:var(--ink-dim);font-family:'JetBrains Mono',monospace;font-size:12px;margin-left:2px}
+
+  button{
+    appearance:none;border:none;cursor:pointer;font-size:13px;font-weight:700;letter-spacing:.02em;
+    color:oklch(0.99 0 0);background:var(--purple);padding:11px 16px;border-radius:9px;
+    width:100%;margin-top:18px;transition:filter .15s ease;
+  }
+  button:hover{filter:brightness(1.12)}
+  button.bb-btn-outline{background:transparent;color:var(--ink-muted);border:1px solid var(--border)}
+  button.bb-btn-danger{background:transparent;color:var(--alert);border:1px solid var(--alert-border)}
+  button.bb-linklike{
+    appearance:none;background:none;border:0;color:var(--purple);font-size:13px;font-weight:700;
+    padding:0;margin:0;width:auto;cursor:pointer;
+  }
+
+  .bb-banner{grid-column:1 / -1;margin:0;padding:10px 14px;border-radius:10px;background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-border);font-size:13px}
+  .bb-banner.err{background:var(--alert-soft);color:var(--alert);border-color:var(--alert-border)}
+  .bb-kvs{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;color:var(--ink)}
+  .bb-kvs b{color:var(--ink-muted);font-weight:500}
+  .bb-chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-muted);margin:10px 0 0}
+  .bb-chk input{width:auto;margin:0}
+
+  .bb-footer{
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;
+    padding:16px 28px;border-top:1px solid var(--border);background:var(--surface);
+  }
+  .bb-theme-switch{display:flex;gap:3px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:3px}
+  .bb-theme-btn{
+    appearance:none;border:none;cursor:pointer;font-size:12px;font-weight:600;padding:6px 11px;border-radius:6px;
+    color:var(--ink-muted);background:transparent;width:auto;margin:0;
+  }
+  .bb-theme-btn.is-active{background:var(--purple);color:#fff}
+  .bb-copyright{font-size:12.5px;color:var(--ink-dim)}
+  .bb-github{
+    display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-muted);text-decoration:none;
+    background:var(--chip-bg);border:1px solid var(--border);border-radius:999px;padding:6px 12px;
+  }
+  .bb-github .dot{width:6px;height:6px;border-radius:50%;background:var(--purple);display:inline-block}
+</style></head><body>
+<div class="bb-header">
+  <span class="bb-wordmark">BARK<span>BOARD</span></span>
+  <span class="bb-chip"><span class="dot"></span>Powered by Datadog</span>
+</div>
+<div class="bb-main"><div class="bb-main-inner">
 )HTML";
 
 // Raw bytes of the same favicon (assets/bits_icon_small.png) — served at
@@ -104,7 +223,34 @@ static const uint8_t FAVICON_PNG[] PROGMEM = {
 static const size_t FAVICON_PNG_LEN = sizeof(FAVICON_PNG);
 
 static const char PAGE_FOOT[] PROGMEM = R"HTML(
-</div></body></html>
+</div></div>
+<div class="bb-footer">
+  <div class="bb-theme-switch">
+    <button type="button" class="bb-theme-btn" onclick="bbSetTheme('auto')">Auto</button>
+    <button type="button" class="bb-theme-btn" onclick="bbSetTheme('light')">Light</button>
+    <button type="button" class="bb-theme-btn" onclick="bbSetTheme('dark')">Dark</button>
+  </div>
+  <div class="bb-copyright">Open source, made with &#128156; by Kyle Taylor and Datadog</div>
+  <a class="bb-github" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener"><span class="dot"></span>GitHub</a>
+</div>
+<script>
+function bbSetTheme(mode) {
+  var dark = mode === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme-mode', mode);
+  try { localStorage.setItem('bb-theme', mode); } catch (e) {}
+  bbSyncThemeButtons();
+}
+function bbSyncThemeButtons() {
+  var mode = document.documentElement.getAttribute('data-theme-mode') || 'auto';
+  var modes = ['auto', 'light', 'dark'];
+  document.querySelectorAll('.bb-theme-btn').forEach(function (btn, i) {
+    btn.classList.toggle('is-active', modes[i] === mode);
+  });
+}
+bbSyncThemeButtons();
+</script>
+</body></html>
 )HTML";
 
 static String htmlEscape(const String& s) {
@@ -125,11 +271,11 @@ static void sendStatus(const String& banner, bool err=false) {
 
     String html = FPSTR(PAGE_HEAD);
     if (banner.length()) {
-        html += String("<div class=\"banner ") + (err?"err":"") + "\">" + htmlEscape(banner) + "</div>";
+        html += String("<div class=\"bb-banner ") + (err?"err":"") + "\">" + htmlEscape(banner) + "</div>";
     }
 
     // Status first — the thing you actually look at this page to check.
-    html += "<div class=\"card\"><div class=\"kvs\">";
+    html += "<div class=\"bb-card\"><div class=\"bb-kvs\">";
     html += "<b>SSID</b><span>" + htmlEscape(WiFi.SSID()) + "</span>";
     html += "<b>IP</b><span>" + WiFi.localIP().toString() + "</span>";
     html += "<b>RSSI</b><span>" + String(WiFi.RSSI()) + " dBm</span>";
@@ -137,37 +283,37 @@ static void sendStatus(const String& banner, bool err=false) {
     html += "<b>Site</b><span>" + (site.length() ? htmlEscape(site) : String("not detected yet")) + "</span>";
     html += "</div></div>";
 
-    html += "<hr><div class=\"card\">";
-    html += "<div class=\"section\">Datadog Keys<span class=\"pill\">" +
+    html += "<div class=\"bb-card\">";
+    html += "<div class=\"bb-section\">Datadog Keys<span class=\"bb-pill\">" +
             String(keysSet ? "&check; set" : "not set") + "</span></div>";
     if (showKeyForm) {
         html += "<form method=\"POST\" action=\"/save\">";
         html += "<label>API Key</label><input type=\"password\" id=\"api_key\" name=\"api_key\" placeholder=\"32-char hex string\" autocomplete=\"off\" required>";
         html += "<label>Application Key</label><input type=\"password\" id=\"app_key\" name=\"app_key\" placeholder=\"40-char hex string\" autocomplete=\"off\" required>";
-        html += "<label class=\"chk\"><input type=\"checkbox\" onclick=\""
+        html += "<label class=\"bb-chk\"><input type=\"checkbox\" onclick=\""
                 "document.getElementById('api_key').type=this.checked?'text':'password';"
                 "document.getElementById('app_key').type=this.checked?'text':'password'\"> Show keys</label>";
-        html += "<div class=\"note\" style=\"margin-top:6px\">Both keys come from <i>Organization Settings &rarr; API Keys / Application Keys</i>. "
+        html += "<div class=\"bb-note\">Both keys come from <i>Organization Settings &rarr; API Keys / Application Keys</i>. "
                 "The Application Key needs read access to Monitors, Incidents, On-Call, SLOs, and Hosts.</div>";
         html += "<button type=\"submit\">Save</button>";
         html += "</form>";
     } else {
-        html += "<div class=\"sub\" style=\"margin-bottom:0\">Both keys are saved on this device. "
-                "<button type=\"button\" class=\"linklike\" onclick=\"location.href='/?edit=keys'\">Change keys</button></div>";
+        html += "<div class=\"bb-sub\">Both keys are saved on this device. "
+                "<button type=\"button\" class=\"bb-linklike\" onclick=\"location.href='/?edit=keys'\">Change keys</button></div>";
     }
     html += "</div>";
 
-    html += "<hr><div class=\"card\">";
-    html += "<div class=\"section\">Preferences</div>";
+    html += "<div class=\"bb-card bb-card-wide\">";
+    html += "<div class=\"bb-section\">Preferences</div>";
     html += "<form method=\"POST\" action=\"/save-prefs\">";
     html += "<label>Team <small>(optional)</small></label>";
-    html += "<input type=\"text\" name=\"team\" placeholder=\"my-team\" value=\"" + htmlEscape(storage::getTeamScope()) + "\" style=\"font-family:monospace\">";
-    html += "<div class=\"note\" style=\"margin-top:6px\">Applied to Monitors, Incidents, and SLOs (each uses "
+    html += "<input type=\"text\" name=\"team\" placeholder=\"my-team\" value=\"" + htmlEscape(storage::getTeamScope()) + "\" style=\"font-family:'JetBrains Mono',monospace\">";
+    html += "<div class=\"bb-note\">Applied to Monitors, Incidents, and SLOs (each uses "
             "Datadog's own field naming under the hood, e.g. monitors' <code>team:</code> tag vs. incidents' "
             "<code>teams:</code> field, so you don't have to know which is which) — On-Call has its own separate "
             "team below, since it's about your account, not a filter. Leave this blank and the device "
             "auto-detects your team from your API key, same as On-Call; type one here to override it.</div>";
-    html += "<label style=\"margin-top:16px\">Poll interval</label>";
+    html += "<label>Poll interval</label>";
     int pollSec = storage::getPollIntervalSec();
     html += "<select name=\"poll_sec\">";
     for (int secs : {30, 60, 120, 300}) {
@@ -176,43 +322,61 @@ static void sendStatus(const String& banner, bool err=false) {
         html += String("<option value=\"") + secs + "\"" + (pollSec == secs ? " selected" : "") + ">" + labelText + "</option>";
     }
     html += "</select>";
-    html += "<div class=\"note\" style=\"margin-top:6px\">How often the dashboard re-fetches monitors/incidents/on-call/SLOs. Shorter means fresher data but more API calls.</div>";
-    html += "<label style=\"margin-top:16px\">Clock format</label>";
+    html += "<div class=\"bb-note\">How often the dashboard re-fetches monitors/incidents/on-call/SLOs. Shorter means fresher data but more API calls.</div>";
+    html += "<label>Clock format</label>";
     bool is24h = storage::getTimeFormat24h();
     html += "<select name=\"time_format\">";
     html += String("<option value=\"24\"") + (is24h ? " selected" : "") + ">24-hour (14:30)</option>";
     html += String("<option value=\"12\"") + (!is24h ? " selected" : "") + ">12-hour (2:30 PM)</option>";
     html += "</select>";
-    html += "<label style=\"margin-top:16px\">Status LED</label>";
+    html += "<label>Status LED</label>";
     bool ledBreathe = storage::getLedBreatheEnabled();
     html += "<select name=\"led_style\">";
     html += String("<option value=\"breathe\"") + (ledBreathe ? " selected" : "") + ">Purple breathing when healthy</option>";
     html += String("<option value=\"solid\"") + (!ledBreathe ? " selected" : "") + ">Solid green when healthy</option>";
     html += "</select>";
-    html += "<div class=\"note\" style=\"margin-top:6px\">Either way, Warn/Alert still show as solid yellow/red — this only changes the all-clear look.</div>";
+    html += "<div class=\"bb-note\">Either way, Warn/Alert still show as solid yellow/red — this only changes the all-clear look.</div>";
     html += "<button type=\"submit\">Save preferences</button>";
     html += "</form></div>";
 
-    html += "<hr><div class=\"card\">";
-    html += "<div class=\"section\">On-Call Team</div>";
+    html += "<div class=\"bb-card\">";
+    html += "<div class=\"bb-section\">On-Call Team<button type=\"button\" class=\"bb-linklike\" "
+            "onclick=\"location.href='/oncall-team'\">Refresh list</button></div>";
     String ocTeamId = storage::getOnCallTeamId();
-    html += "<div class=\"sub\" style=\"margin-bottom:0\">";
-    html += ocTeamId.length()
-                ? ("Auto-detected from your API key. <b>Team id:</b> " + htmlEscape(ocTeamId))
-                : String("Not yet detected — the device will auto-detect it from your API key the next time "
-                         "the On-Call screen refreshes, or you can detect it here now.");
-    html += " <button type=\"button\" class=\"linklike\" onclick=\"location.href='/oncall-team'\">"
-            + String(ocTeamId.length() ? "Change" : "Detect now") + "</button></div>";
+    // dd::lastMyTeams() is kept warm by the device's own periodic On-Call
+    // poll (see fetchOnCallAll()'s doc comment in datadog.h) — no extra
+    // fetch needed here just to render the picker.
+    const std::vector<dd::Team>& ocTeams = dd::lastMyTeams();
+    if (ocTeams.empty()) {
+        html += "<div class=\"bb-sub\">";
+        html += ocTeamId.length()
+                    ? ("Auto-detected from your API key. <b>Team id:</b> " + htmlEscape(ocTeamId))
+                    : String("Not yet detected — the device will auto-detect it from your API key the next time "
+                             "the On-Call screen refreshes, or you can detect it here now.");
+        html += " <button type=\"button\" class=\"bb-linklike\" onclick=\"location.href='/oncall-team'\">"
+                + String(ocTeamId.length() ? "Change" : "Detect now") + "</button></div>";
+    } else {
+        html += "<form method=\"POST\" action=\"/save-oncall-team\">";
+        html += "<div class=\"bb-radio-list\">";
+        for (const dd::Team& t : ocTeams) {
+            bool checked = t.id == ocTeamId || (ocTeamId.length() == 0 && &t == &ocTeams.front());
+            html += "<label class=\"bb-radio\"><input type=\"radio\" name=\"team_id\" value=\"" +
+                    htmlEscape(t.id) + "\"" + (checked ? " checked" : "") + "> " + htmlEscape(t.name) +
+                    " <span class=\"bb-radio-handle\">" + htmlEscape(t.handle) + "</span></label>";
+        }
+        html += "</div>";
+        html += "<button type=\"submit\">Save</button></form>";
+    }
     html += "</div>";
 
-    html += "<hr><div class=\"card danger\">";
-    html += "<div class=\"section\">Danger Zone</div>";
-    html += "<div class=\"sub\" style=\"margin-bottom:0\">Erases WiFi credentials and Datadog keys from this device — you'll need to go through setup again.</div>";
-    html += "<form method=\"POST\" action=\"/forget\" style=\"margin-top:14px\">";
-    html += "<button type=\"submit\" class=\"secondary\">Forget WiFi &amp; keys</button></form>";
+    html += "<div class=\"bb-card bb-card-danger\">";
+    html += "<div class=\"bb-section\">Danger Zone</div>";
+    html += "<div class=\"bb-sub\">Erases WiFi credentials and Datadog keys from this device — you'll need to go through setup again.</div>";
+    html += "<form method=\"POST\" action=\"/forget\">";
+    html += "<button type=\"submit\" class=\"bb-btn-danger\">Forget WiFi &amp; keys</button></form>";
     html += "</div>";
 
-    html += "<p class=\"note\">Keys are stored in NVS on the device and never logged.</p>";
+    html += "<p class=\"bb-note\">Keys are stored in NVS on the device and never logged.</p>";
     html += FPSTR(PAGE_FOOT);
     server.send(200, "text/html", html);
 }
@@ -296,7 +460,7 @@ static void handleOnCallTeam() {
         g_oncallTeamsFetchRequested = true;
         String html = FPSTR(PAGE_HEAD);
         html += "<meta http-equiv=\"refresh\" content=\"1\">";
-        html += "<div class=\"card\"><div class=\"sub\" style=\"margin-bottom:0\">Detecting your teams&hellip;</div></div>";
+        html += "<div class=\"bb-card bb-card-wide\"><div class=\"bb-sub\">Detecting your teams&hellip;</div></div>";
         html += FPSTR(PAGE_FOOT);
         server.send(200, "text/html", html);
         return;
@@ -305,26 +469,27 @@ static void handleOnCallTeam() {
 
     const std::vector<dd::Team>& teams = dd::lastMyTeams();
     String html = FPSTR(PAGE_HEAD);
-    html += "<div class=\"card\">";
-    html += "<div class=\"section\">On-Call Team</div>";
+    html += "<div class=\"bb-card bb-card-wide\">";
+    html += "<div class=\"bb-section\">On-Call Team</div>";
     if (teams.empty()) {
-        html += "<div class=\"sub\" style=\"margin-bottom:0\">No teams found for this API key's user. "
+        html += "<div class=\"bb-sub\">No teams found for this API key's user. "
                 "Set up a team in Datadog first, then come back and detect again.</div>";
-        html += "<button type=\"button\" class=\"secondary\" style=\"margin-top:14px\" "
+        html += "<button type=\"button\" class=\"bb-btn-outline\" "
                 "onclick=\"location.href='/oncall-team'\">Detect again</button>";
     } else {
-        // First runtime-populated <select> in this file — every other one
-        // (poll_sec, time_format, led_style) iterates a fixed compile-time
-        // list; this iterates dd::lastMyTeams(), fetched moments ago above.
+        // You can belong to more than one Datadog team — list every team this
+        // API key's user belongs to (fetched moments ago above) as radio
+        // options rather than forcing a single guess into a dropdown.
         String currentId = storage::getOnCallTeamId();
         html += "<form method=\"POST\" action=\"/save-oncall-team\">";
-        html += "<label>Team</label><select name=\"team_id\">";
+        html += "<label>Team</label><div class=\"bb-radio-list\">";
         for (const dd::Team& t : teams) {
-            html += "<option value=\"" + htmlEscape(t.id) + "\"" +
-                    (t.id == currentId ? " selected" : "") + ">" + htmlEscape(t.name) + "</option>";
+            bool checked = t.id == currentId || (currentId.length() == 0 && &t == &teams.front());
+            html += "<label class=\"bb-radio\"><input type=\"radio\" name=\"team_id\" value=\"" +
+                    htmlEscape(t.id) + "\"" + (checked ? " checked" : "") + "> " + htmlEscape(t.name) + "</label>";
         }
-        html += "</select>";
-        html += "<div class=\"note\" style=\"margin-top:6px\">Teams belonging to whoever created this device's "
+        html += "</div>";
+        html += "<div class=\"bb-note\">Teams belonging to whoever created this device's "
                 "API/App key pair. On-Call shows this team's roster regardless of the general Team scope above.</div>";
         html += "<button type=\"submit\">Save</button></form>";
     }
@@ -344,7 +509,7 @@ static void handleSaveOnCallTeam() {
 static void handleForget() {
     storage::clearAll();
     String html = FPSTR(PAGE_HEAD);
-    html += "<div class=\"title\">Cleared</div><div class=\"sub\">Restarting and re-opening captive portal&hellip;</div>";
+    html += "<div class=\"bb-card bb-card-wide\"><div class=\"bb-section\">Cleared</div><div class=\"bb-sub\">Restarting and re-opening captive portal&hellip;</div></div>";
     html += FPSTR(PAGE_FOOT);
     server.send(200, "text/html", html);
     delay(500);
