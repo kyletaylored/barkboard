@@ -317,6 +317,14 @@ static void sendStatus(const String& banner, bool err=false) {
     }
     html += "</select>";
     html += "<div class=\"bb-note\">How often the dashboard re-fetches monitors/incidents/on-call/SLOs. Shorter means fresher data but more API calls.</div>";
+    html += "<label>Auto-rotate dashboards</label>";
+    bool autoRotate = storage::getAutoRotateEnabled();
+    html += "<select name=\"auto_rotate\">";
+    html += String("<option value=\"off\"") + (!autoRotate ? " selected" : "") + ">Off — swipe/tap only</option>";
+    html += String("<option value=\"on\"")  + (autoRotate  ? " selected" : "") + ">On — advance every " + String(AUTO_ROTATE_INTERVAL_MS / 1000) + "s</option>";
+    html += "</select>";
+    html += "<div class=\"bb-note\">Off by default so the dashboard behaves like a stream deck (only moves when you tap or swipe). "
+            "Turn on for a rotating status-board look — swiping still works either way.</div>";
     html += "<label>Clock format</label>";
     bool is24h = storage::getTimeFormat24h();
     html += "<select name=\"time_format\">";
@@ -451,13 +459,15 @@ static void handleSavePrefs() {
     bool validPoll = false;
     for (int allowed : {30, 60, 120, 300}) if (pollSec == allowed) validPoll = true;
     storage::setPollIntervalSec(validPoll ? pollSec : DD_POLL_INTERVAL_SEC_DEFAULT);
+    storage::setAutoRotateEnabled(server.arg("auto_rotate") == "on");
     // Confirms what the form actually submitted vs. what got saved — if
     // led_style ever comes back empty/unexpected here, that's a form
     // problem; if it's correct here but the LED still doesn't change,
     // that's downstream in updateMoodLed()/the LEDC hardware layer instead.
-    Serial.printf("[portal] save-prefs: time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s events_enabled=%s\n",
+    Serial.printf("[portal] save-prefs: time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s events_enabled=%s auto_rotate=%s\n",
                   server.arg("time_format").c_str(), server.arg("led_style").c_str(),
-                  ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str(), server.arg("events_enabled").c_str());
+                  ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str(), server.arg("events_enabled").c_str(),
+                  server.arg("auto_rotate").c_str());
     server.sendHeader("Location", "/?prefs=saved");
     server.send(303, "text/plain", "");
 }

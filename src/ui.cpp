@@ -2531,28 +2531,13 @@ static void setActiveDots(int idx) {
     }
 }
 
-static void rotateTo(int idx, bool /*fromUser*/) {
-    idx = ((idx % DASH_COUNT) + DASH_COUNT) % DASH_COUNT;
-    if (!s_dashScr[idx]) return;
-    if (lv_scr_act() == s_dashScr[idx]) return;
-
-    setActiveDots(idx);
-
-    bool onDash = (s_screen == ui::Screen::Overview || s_screen == ui::Screen::Monitors ||
-                   s_screen == ui::Screen::Incidents || s_screen == ui::Screen::OnCall ||
-                   s_screen == ui::Screen::Slo || s_screen == ui::Screen::Bits);
-    if (!onDash) {
-        lv_scr_load_anim(s_dashScr[idx], LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
-    } else {
-        lv_scr_load_anim_t anim = (idx > s_dashIdx) ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
-        lv_scr_load_anim(s_dashScr[idx], anim, 200, 0, false);
-    }
-    s_dashIdx = idx;
-    static const ui::Screen SCR_FOR_IDX[DASH_COUNT] = {
-        ui::Screen::Overview, ui::Screen::Monitors, ui::Screen::Incidents, ui::Screen::OnCall, ui::Screen::Slo, ui::Screen::Bits
-    };
-    s_screen = SCR_FOR_IDX[idx];
-
+// Sets whichever screen's fetch-pending flag corresponds to idx — shared by
+// rotateTo() (on navigating there) and refreshCurrentDash() (re-fetching in
+// place, no navigation, for the swipe-down gesture). Overview has no fetch
+// of its own to trigger here: its counters ride the ambient poll in
+// netTask(), which is already always running regardless of which screen is
+// visible, so there's nothing to force early.
+static void triggerFetchForDash(int idx) {
     if (idx == DASH_MONITORS)  requestMonitorsFetch(dd::getMonitorFilter().c_str());
     if (idx == DASH_INCIDENTS) {
         portENTER_CRITICAL(&s_pendingMux);
@@ -2576,12 +2561,64 @@ static void rotateTo(int idx, bool /*fromUser*/) {
     }
 }
 
+static void rotateTo(int idx, bool /*fromUser*/) {
+    idx = ((idx % DASH_COUNT) + DASH_COUNT) % DASH_COUNT;
+    if (!s_dashScr[idx]) return;
+    if (lv_scr_act() == s_dashScr[idx]) return;
+
+    setActiveDots(idx);
+
+    bool onDash = (s_screen == ui::Screen::Overview || s_screen == ui::Screen::Monitors ||
+                   s_screen == ui::Screen::Incidents || s_screen == ui::Screen::OnCall ||
+                   s_screen == ui::Screen::Slo || s_screen == ui::Screen::Bits);
+    if (!onDash) {
+        lv_scr_load_anim(s_dashScr[idx], LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    } else {
+        lv_scr_load_anim_t anim = (idx > s_dashIdx) ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
+        lv_scr_load_anim(s_dashScr[idx], anim, 200, 0, false);
+    }
+    s_dashIdx = idx;
+    static const ui::Screen SCR_FOR_IDX[DASH_COUNT] = {
+        ui::Screen::Overview, ui::Screen::Monitors, ui::Screen::Incidents, ui::Screen::OnCall, ui::Screen::Slo, ui::Screen::Bits
+    };
+    s_screen = SCR_FOR_IDX[idx];
+    triggerFetchForDash(idx);
+}
+
+// Swipe-down-to-refresh: re-fetches whatever's on the CURRENT dashboard
+// screen without navigating anywhere — same fetch-pending flags and busy-
+// spinner UX triggerFetchForDash()'s caller already gets on first
+// navigation, just re-armed on demand. Deliberately not a periodic "refresh
+// everything always" poll: that would mean fetching Monitors/On-Call/SLOs/
+// Bits Investigations data on a timer regardless of whether anyone's
+// looking at them, burning API calls and battery for screens that are
+// off-screen — an on-demand gesture for the one screen actually visible is
+// the cheaper trade.
+static void refreshCurrentDash() {
+    triggerFetchForDash(s_dashIdx);
+}
+
+// Advances to the next dashboard screen automatically, only when the user's
+// turned it on (storage::getAutoRotateEnabled(), off by default) and only
+// while actually sitting on one of the six dashboard screens — never fires
+// from a detail/settings/idle screen, so it can't yank someone out of
+// Monitor Detail or the Bits idle screen mid-read.
+static void autoRotateTick(lv_timer_t*) {
+    if (!storage::getAutoRotateEnabled()) return;
+    bool onDash = (s_screen == ui::Screen::Overview || s_screen == ui::Screen::Monitors ||
+                   s_screen == ui::Screen::Incidents || s_screen == ui::Screen::OnCall ||
+                   s_screen == ui::Screen::Slo || s_screen == ui::Screen::Bits);
+    if (!onDash) return;
+    rotateTo(s_dashIdx + 1, false);
+}
+
 static void onDashGesture(lv_event_t*) {
     lv_indev_t* in = lv_indev_get_act();
     if (!in) return;
     lv_dir_t d = lv_indev_get_gesture_dir(in);
-    if (d == LV_DIR_LEFT)       rotateTo(s_dashIdx + 1, true);
-    else if (d == LV_DIR_RIGHT) rotateTo(s_dashIdx - 1, true);
+    if (d == LV_DIR_LEFT)        rotateTo(s_dashIdx + 1, true);
+    else if (d == LV_DIR_RIGHT)  rotateTo(s_dashIdx - 1, true);
+    else if (d == LV_DIR_BOTTOM) refreshCurrentDash();
 }
 
 static void buildDashboard() {
@@ -2596,6 +2633,11 @@ static void buildDashboard() {
     // makeDashScreen() for why that ordering matters here.
     for (int i = 0; i < DASH_COUNT; ++i) addNavArrows(s_dashScr[i], i);
     s_dashBuilt = true;
+
+    // Created once, checks storage::getAutoRotateEnabled() every tick —
+    // see autoRotateTick()'s doc comment for why it's safe to just let this
+    // run continuously rather than starting/stopping it per toggle.
+    lv_timer_create(autoRotateTick, AUTO_ROTATE_INTERVAL_MS, nullptr);
 
     // One-time diagnostic, not per-frame: LVGL's own memory pool
     // (LV_MEM_SIZE, separate from the general ESP32 heap) is what every

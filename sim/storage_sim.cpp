@@ -8,6 +8,7 @@ namespace {
 String g_apiKey, g_appKey, g_site = "datadoghq.com";
 bool g_timeFormat24h = true;
 bool g_ledBreathe = true;
+bool g_autoRotate = false;
 }
 
 void storage::begin() {}
@@ -26,6 +27,9 @@ void storage::setTimeFormat24h(bool v) { g_timeFormat24h = v; }
 
 bool storage::getLedBreatheEnabled() { return g_ledBreathe; }
 void storage::setLedBreatheEnabled(bool v) { g_ledBreathe = v; }
+
+bool storage::getAutoRotateEnabled() { return g_autoRotate; }
+void storage::setAutoRotateEnabled(bool v) { g_autoRotate = v; }
 
 void storage::clearAll() { g_apiKey = ""; g_appKey = ""; g_site = ""; }
 bool storage::hasKeys() { return g_apiKey.length() > 0 && g_appKey.length() > 0; }

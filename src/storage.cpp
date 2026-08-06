@@ -19,6 +19,7 @@ void storage::begin() {
     if (!prefs.isKey(NVS_KEY_ONCALL_TEAM_ID))    prefs.putString(NVS_KEY_ONCALL_TEAM_ID, "");
     if (!prefs.isKey(NVS_KEY_METRICS_ENABLED))   prefs.putBool(NVS_KEY_METRICS_ENABLED, false);
     if (!prefs.isKey(NVS_KEY_EVENTS_ENABLED))    prefs.putBool(NVS_KEY_EVENTS_ENABLED, false);
+    if (!prefs.isKey(NVS_KEY_AUTO_ROTATE))       prefs.putBool(NVS_KEY_AUTO_ROTATE, false);
 }
 
 String storage::getApiKey() {
@@ -75,6 +76,14 @@ int storage::getPollIntervalSec() {
 
 void storage::setPollIntervalSec(int v) {
     prefs.putInt(NVS_KEY_POLL_INTERVAL_SEC, v);
+}
+
+bool storage::getAutoRotateEnabled() {
+    return prefs.getBool(NVS_KEY_AUTO_ROTATE, false);   // off by default
+}
+
+void storage::setAutoRotateEnabled(bool v) {
+    prefs.putBool(NVS_KEY_AUTO_ROTATE, v);
 }
 
 bool storage::getMetricsEnabled() {

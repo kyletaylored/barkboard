@@ -63,6 +63,14 @@
 #define NVS_KEY_TIME_FORMAT_24H "time_24h"    // bool; default true (24h) if unset
 #define NVS_KEY_LED_BREATHE     "led_breathe" // bool; default true — purple breathing LED when healthy
 #define NVS_KEY_POLL_INTERVAL_SEC "poll_sec"  // int; default DD_POLL_INTERVAL_SEC_DEFAULT (60s)
+// Off by default — the dashboard grid (BARKBOARD_PLAN.md's Overview redesign)
+// works fine as pure tap/swipe navigation, and not everyone wants the screen
+// advancing on its own. On: cycles through the six dashboard screens every
+// AUTO_ROTATE_INTERVAL_MS, same as the original plan's "auto-rotate every
+// 10s; swipe left/right to navigate manually" — both still work together
+// when this is on, matching the reference project's own behavior.
+#define NVS_KEY_AUTO_ROTATE "auto_rotate"
+#define AUTO_ROTATE_INTERVAL_MS 10000
 #define NVS_KEY_METRICS_ENABLED "dd_metrics_en" // bool; default false — opt-in device-health metrics, see storage.h
 // Separate from NVS_KEY_METRICS_ENABLED on purpose — custom metrics and
 // Datadog Events are both billable usage but distinct products; a user

@@ -26,6 +26,10 @@ namespace storage {
     int    getPollIntervalSec();    // how often the dashboard re-polls Datadog; default 60s
     void   setPollIntervalSec(int v);
 
+    // Off by default — see NVS_KEY_AUTO_ROTATE's doc comment in config.h.
+    bool   getAutoRotateEnabled();
+    void   setAutoRotateEnabled(bool v);
+
     // Opt-in — off by default. Sends a handful of device-health gauges
     // (free heap, WiFi RSSI, uptime) to the same Datadog org via
     // dd::submitDeviceMetrics(), tagged device:<AP SSID>. See its doc
