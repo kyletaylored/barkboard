@@ -1265,27 +1265,15 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
 static std::vector<BitsInvestigation> g_lastBitsInvestigations;
 const std::vector<BitsInvestigation>& lastBitsInvestigations() { return g_lastBitsInvestigations; }
 
-bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
+// Real response shape confirmed live: data.attributes.response.investigations[]
+// — each item has uuid/title/status/entity.source/modified_timestamp at its
+// top level (unlike the documented v2 list endpoint's JSON:API
+// id/attributes.* wrapping). Shared by fetchBitsInvestigations()'s
+// team-scoped attempt and its unscoped fallback.
+static bool fetchBitsInvestigationsQuery(const String& query, std::vector<BitsInvestigation>& out, String& err) {
     out.clear();
-    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
-
-    // Real response shape confirmed live:
-    // data.attributes.response.investigations[] — each item has uuid/title/
-    // status/entity.source/modified_timestamp at its top level (unlike the
-    // documented v2 list endpoint's JSON:API id/attributes.* wrapping).
-    //
-    // Deliberately NOT scoped by team:x here, unlike Monitors/Incidents/
-    // SLOs — confirmed live this was the actual cause of an empty Bits
-    // screen while `make fetch-investigations --team x` returned real
-    // results: an investigation's tags come from whichever entity
-    // triggered it (a monitor, in every case seen live), not a property of
-    // the investigation itself, and plenty of real monitors carry no
-    // team:x tag at all. Scoping by team silently returned zero rows
-    // instead of surfacing that mismatch. Most-recent-first ordering
-    // (confirmed live as the API's own default, no explicit sort param
-    // needed) plus the page_size cap below does the job of keeping this
-    // screen relevant without team scoping.
     String url = apiBase() + "/api/unstable/bits-ai/investigation/search?page_size=14";
+    if (query.length()) url += "&query=" + urlEncode(query);
 
     JsonDocument filter;
     JsonObject itemFilter = filter["data"]["attributes"]["response"]["investigations"].add<JsonObject>();
@@ -1307,6 +1295,29 @@ bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
         out.push_back(inv);
         if ((int)out.size() >= 14) break;   // same LVGL-pool-protecting cap as other lists
     }
+    return true;
+}
+
+bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    // Team-scoped first, same "team:x" convention as Monitors/Incidents/
+    // SLOs — confirmed live this genuinely narrows results correctly when
+    // the team has investigations. But an investigation's tags come from
+    // whichever entity triggered it (a monitor, in every case seen live),
+    // not a property of the investigation itself, and it's entirely
+    // possible for the configured/auto-detected team to have zero
+    // investigations even when the org has plenty under other teams — that
+    // used to render as a dead-empty screen with no way to tell "your team
+    // really has none" apart from "the query is broken". Falling back to
+    // an unscoped fetch (most-recent-first ordering, confirmed live as the
+    // API's own default) instead of leaving the screen empty.
+    String scope = monitorTeamScope();
+    if (scope.length() && fetchBitsInvestigationsQuery(scope, out, err) && !out.empty()) {
+        g_lastBitsInvestigations = out;
+        return true;
+    }
+    if (!fetchBitsInvestigationsQuery("", out, err)) return false;
     g_lastBitsInvestigations = out;
     return true;
 }
