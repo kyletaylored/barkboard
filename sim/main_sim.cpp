@@ -100,9 +100,17 @@ int main(int argc, char** argv) {
     storage::begin();
 
     ui::begin();
-    seedFakeDashboardData();
     ui::setStatusOnline(true);
+    // Must run before seedFakeDashboardData() — showOverview() is what lazily
+    // builds all six dashboard screens (buildDashboard()) the first time
+    // it's called. Every notifyXRefreshed() in seedFakeDashboardData() has an
+    // `if (!s_xxxList) return;` guard (real widgets, populated once built),
+    // so calling it first meant every one of those was a silent no-op —
+    // the underlying dd:: fetch caches got populated fine, nothing ever
+    // rendered them. Screens just show their normal "Loading..." placeholder
+    // for the one frame between showOverview() and the seed call finishing.
     ui::showOverview();
+    seedFakeDashboardData();
     tickClock();
 
     printf("[sim] BarkBoard simulator running. Click/drag with the mouse the way you'd touch the panel. Ctrl+C to quit.\n");
