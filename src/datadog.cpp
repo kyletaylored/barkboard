@@ -41,28 +41,27 @@ static String urlEncode(const String& s) {
     return out;
 }
 
-// storage::getTeamScope() is meant to be one bare value (e.g. "my-team"),
-// but the Settings field is free text — someone typing out of habit from
-// the old two-field days (or copy-pasting a "team:x"/"teams:x" fragment
-// from elsewhere) shouldn't end up double-prefixed ("teams:team:my-team",
-// which matches nothing). Strip either prefix before applying the correct
-// one for the screen.
+// Monitors/Incidents/Bits Investigations no longer have their own separate
+// "Team" field — it was just duplicating whatever team a user would also
+// pick for On-Call, so this derives the scope from the same source On-Call
+// uses instead (see NVS_KEY_ONCALL_TEAM_ID's doc comment in config.h).
 static String bareTeamScope() {
-    String team = storage::getTeamScope();
-    team.trim();
-    String lower = team; lower.toLowerCase();
-    if (lower.startsWith("teams:"))    team = team.substring(6);
-    else if (lower.startsWith("team:")) team = team.substring(5);
-    team.trim();
-    if (team.length()) return team;
-
-    // Manual field is blank — fall back to the auto-detected team from
-    // filter[me] (see netTask()'s doc comment in main.cpp for when this
-    // gets fetched). Only when exactly one team resolves: same reasoning
-    // as On-Call's needsTeamPick in fetchOnCallAll() — zero or multiple
-    // teams can't be disambiguated automatically, so this falls through to
-    // "no scope" (today's behavior) rather than guessing wrong.
+    // Exactly one team auto-detected from filter[me] (see netTask()'s doc
+    // comment in main.cpp for when this gets fetched): unambiguous, use it.
     if (g_lastMyTeams.size() == 1) return g_lastMyTeams[0].handle;
+
+    // More than one team to choose from — if the user has already picked
+    // one for On-Call, reuse that same team's handle here too, rather than
+    // leaving these screens unscoped just because filter[me] alone couldn't
+    // disambiguate. g_lastMyTeams still has the full list either way
+    // (fetchMyTeams() populates it unconditionally), so this is a plain
+    // lookup, not a second API call.
+    String ocTeamId = storage::getOnCallTeamId();
+    if (ocTeamId.length()) {
+        for (const Team& t : g_lastMyTeams) {
+            if (t.id == ocTeamId) return t.handle;
+        }
+    }
     return "";
 }
 
@@ -669,8 +668,7 @@ bool fetchMyTeams(std::vector<Team>& out, String& err) {
     // filter[me]=true — confirmed live this resolves to the specific user
     // who created the API/App key pair being used, not a per-request/
     // per-session identity (there is none for a device authenticating with
-    // static keys) — see datadog.h's doc comment on why this is a separate
-    // concept from storage::getTeamScope().
+    // static keys).
     String url = apiBase() + "/api/v2/team?filter%5Bme%5D=true&page%5Bsize%5D=20";
     JsonDocument doc;
     if (!httpGetJsonRetrying(url, doc, err)) return false;

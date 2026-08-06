@@ -421,10 +421,10 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err);
 
 // One-shot per boot (call once from netTask() after the first successful
 // connection, guarded by a local "already ran" bool — same pattern as this
-// file's team-scope auto-fetch), only while storage::getMetricsEnabled() is
-// on — Events are billable Datadog usage just like custom metrics, so the
-// caller must gate this behind the same opt-in toggle as
-// submitDeviceMetrics(), not fire it unconditionally. Reads
+// file's team-scope auto-fetch), only while storage::getEventsEnabled() is
+// on — Events are billable Datadog usage just like custom metrics, but a
+// distinct product, so this has its own opt-in toggle rather than sharing
+// submitDeviceMetrics()'s. Reads
 // esp_reset_reason() and, only when it indicates the previous boot did NOT
 // end cleanly (panic, either watchdog, brownout — not a plain
 // esp_restart()/power-on), fires a Datadog Event (POST /api/v1/events,

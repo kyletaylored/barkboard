@@ -60,27 +60,25 @@
 #define NVS_KEY_API_KEY "dd_api_key"
 #define NVS_KEY_APP_KEY "dd_app_key"
 #define NVS_KEY_SITE    "dd_site"     // detected Datadog site host, e.g. "datadoghq.com"
-// A single bare team value (e.g. "my-team", no "team:"/"teams:" prefix) —
-// one Settings-page field for all screens. Each screen's fetcher builds its
-// own query fragment from this, since monitors/SLOs (tag convention
-// "team:x") and incidents (custom field literally named "teams", plural)
-// don't share a filter syntax; splitting this into two raw-query fields
-// fixed correctness but pushed the team/teams distinction onto the user
-// instead of the code, so it's collapsed back to one value here.
-#define NVS_KEY_SCOPE_TEAM      "dd_scope_team"
 #define NVS_KEY_TIME_FORMAT_24H "time_24h"    // bool; default true (24h) if unset
 #define NVS_KEY_LED_BREATHE     "led_breathe" // bool; default true — purple breathing LED when healthy
 #define NVS_KEY_POLL_INTERVAL_SEC "poll_sec"  // int; default DD_POLL_INTERVAL_SEC_DEFAULT (60s)
 #define NVS_KEY_METRICS_ENABLED "dd_metrics_en" // bool; default false — opt-in device-health metrics, see storage.h
+// Separate from NVS_KEY_METRICS_ENABLED on purpose — custom metrics and
+// Datadog Events are both billable usage but distinct products; a user
+// should be able to opt into one without the other. Gates
+// dd::reportBootEvent() specifically (see storage.h).
+#define NVS_KEY_EVENTS_ENABLED  "dd_events_en"  // bool; default false — opt-in crash/reboot Events
 // How often netTask() submits device metrics when NVS_KEY_METRICS_ENABLED is
 // on — independent of the dashboard's own data-poll interval; these gauges
 // don't need to be nearly as fresh as monitor/incident counts.
 #define METRICS_INTERVAL_SEC 60
-// On-Call's own team selection — deliberately separate from
-// NVS_KEY_SCOPE_TEAM above. That field answers "what should Monitors/
-// Incidents/SLOs show"; this one answers "which team's on-call roster",
-// auto-detected from the API-key-owning user's own team memberships
-// (GET /api/v2/team?filter[me]=true) rather than typed in. "" means not
-// yet resolved — set automatically when filter[me] returns exactly one
-// team, or via the web Settings page's picker when it returns more than one.
+// On-Call's team selection, auto-detected from the API-key-owning user's own
+// team memberships (GET /api/v2/team?filter[me]=true) rather than typed in.
+// "" means not yet resolved — set automatically when filter[me] returns
+// exactly one team, or via the web Settings page's picker when it returns
+// more than one. Also doubles as the scope for Monitors/Incidents/Bits
+// Investigations (see dd::bareTeamScope() in datadog.cpp) — there used to be
+// a second, separately-typed "Team" field for that, removed once it became
+// clear it was just duplicating whatever team a user would also pick here.
 #define NVS_KEY_ONCALL_TEAM_ID "dd_oncall_team"

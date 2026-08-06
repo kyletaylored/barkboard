@@ -13,12 +13,12 @@ void storage::begin() {
     // Writing the default once means the key always exists afterward and
     // that noise stops for good (matches the earlier dd_api_key flood fix —
     // same root cause, different key).
-    if (!prefs.isKey(NVS_KEY_SCOPE_TEAM))        prefs.putString(NVS_KEY_SCOPE_TEAM, "");
     if (!prefs.isKey(NVS_KEY_TIME_FORMAT_24H))   prefs.putBool(NVS_KEY_TIME_FORMAT_24H, true);
     if (!prefs.isKey(NVS_KEY_LED_BREATHE))       prefs.putBool(NVS_KEY_LED_BREATHE, true);
     if (!prefs.isKey(NVS_KEY_POLL_INTERVAL_SEC)) prefs.putInt(NVS_KEY_POLL_INTERVAL_SEC, DD_POLL_INTERVAL_SEC_DEFAULT);
     if (!prefs.isKey(NVS_KEY_ONCALL_TEAM_ID))    prefs.putString(NVS_KEY_ONCALL_TEAM_ID, "");
     if (!prefs.isKey(NVS_KEY_METRICS_ENABLED))   prefs.putBool(NVS_KEY_METRICS_ENABLED, false);
+    if (!prefs.isKey(NVS_KEY_EVENTS_ENABLED))    prefs.putBool(NVS_KEY_EVENTS_ENABLED, false);
 }
 
 String storage::getApiKey() {
@@ -43,14 +43,6 @@ String storage::getSite() {
 
 void storage::setSite(const String& site) {
     prefs.putString(NVS_KEY_SITE, site);
-}
-
-String storage::getTeamScope() {
-    return prefs.getString(NVS_KEY_SCOPE_TEAM, "");
-}
-
-void storage::setTeamScope(const String& team) {
-    prefs.putString(NVS_KEY_SCOPE_TEAM, team);
 }
 
 String storage::getOnCallTeamId() {
@@ -91,6 +83,14 @@ bool storage::getMetricsEnabled() {
 
 void storage::setMetricsEnabled(bool v) {
     prefs.putBool(NVS_KEY_METRICS_ENABLED, v);
+}
+
+bool storage::getEventsEnabled() {
+    return prefs.getBool(NVS_KEY_EVENTS_ENABLED, false);   // opt-in
+}
+
+void storage::setEventsEnabled(bool v) {
+    prefs.putBool(NVS_KEY_EVENTS_ENABLED, v);
 }
 
 void storage::clearAll() {

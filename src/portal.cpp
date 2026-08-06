@@ -307,13 +307,6 @@ static void sendStatus(const String& banner, bool err=false) {
     html += "<div class=\"bb-card bb-card-wide\">";
     html += "<div class=\"bb-section\">Preferences</div>";
     html += "<form method=\"POST\" action=\"/save-prefs\">";
-    html += "<label>Team <small>(optional)</small></label>";
-    html += "<input type=\"text\" name=\"team\" placeholder=\"my-team\" value=\"" + htmlEscape(storage::getTeamScope()) + "\" style=\"font-family:'JetBrains Mono',monospace\">";
-    html += "<div class=\"bb-note\">Applied to Monitors, Incidents, and SLOs (each uses "
-            "Datadog's own field naming under the hood, e.g. monitors' <code>team:</code> tag vs. incidents' "
-            "<code>teams:</code> field, so you don't have to know which is which) — On-Call has its own separate "
-            "team below, since it's about your account, not a filter. Leave this blank and the device "
-            "auto-detects your team from your API key, same as On-Call; type one here to override it.</div>";
     html += "<label>Poll interval</label>";
     int pollSec = storage::getPollIntervalSec();
     html += "<select name=\"poll_sec\">";
@@ -345,9 +338,17 @@ static void sendStatus(const String& banner, bool err=false) {
     html += "</select>";
     html += "<div class=\"bb-note\">Sends device-health gauges (heap, task stack headroom, WiFi signal, uptime) back "
             "to your own Datadog org every " + String(METRICS_INTERVAL_SEC) + "s, tagged <code>device:" +
-            htmlEscape(netcfg::apSsid()) + "</code>, and reports abnormal reboots (panic/watchdog/brownout) as a "
-            "Datadog Event — because what's a Datadog dashboard without also monitoring itself? Custom metrics and "
-            "Events are both billable Datadog usage, so both stay off unless you turn this on. Off by default.</div>";
+            htmlEscape(netcfg::apSsid()) + "</code> — because what's a Datadog dashboard without also monitoring "
+            "itself? Custom metrics are billable Datadog usage, so this stays off unless you turn it on.</div>";
+    html += "<label>Crash/reboot events</label>";
+    bool eventsOn = storage::getEventsEnabled();
+    html += "<select name=\"events_enabled\">";
+    html += String("<option value=\"off\"") + (!eventsOn ? " selected" : "") + ">Off</option>";
+    html += String("<option value=\"on\"")  + (eventsOn  ? " selected" : "") + ">On — send to this Datadog org</option>";
+    html += "</select>";
+    html += "<div class=\"bb-note\">Reports abnormal reboots (panic/watchdog/brownout — not a plain restart) as a "
+            "Datadog Event. Separate from device metrics above since Events are also billable Datadog usage, but a "
+            "different product you may want on its own.</div>";
     html += "<button type=\"submit\">Save preferences</button>";
     html += "</form></div>";
 
@@ -435,13 +436,11 @@ static void handleSaved() {
 }
 
 static void handleSavePrefs() {
-    String team = server.arg("team");
-    team.trim();
-    storage::setTeamScope(team);
     storage::setTimeFormat24h(server.arg("time_format") != "12");
     bool ledBreathe = server.arg("led_style") != "solid";
     storage::setLedBreatheEnabled(ledBreathe);
     storage::setMetricsEnabled(server.arg("metrics_enabled") == "on");
+    storage::setEventsEnabled(server.arg("events_enabled") == "on");
 
     // Only accept one of the preset values the form actually offers — a
     // malformed/garbage value here (e.g. 0) would turn into a tight loop
@@ -456,9 +455,9 @@ static void handleSavePrefs() {
     // led_style ever comes back empty/unexpected here, that's a form
     // problem; if it's correct here but the LED still doesn't change,
     // that's downstream in updateMoodLed()/the LEDC hardware layer instead.
-    Serial.printf("[portal] save-prefs: team=%s time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s\n",
-                  team.c_str(), server.arg("time_format").c_str(), server.arg("led_style").c_str(),
-                  ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str());
+    Serial.printf("[portal] save-prefs: time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s events_enabled=%s\n",
+                  server.arg("time_format").c_str(), server.arg("led_style").c_str(),
+                  ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str(), server.arg("events_enabled").c_str());
     server.sendHeader("Location", "/?prefs=saved");
     server.send(303, "text/plain", "");
 }

@@ -10,18 +10,9 @@ namespace storage {
     String getSite();             // detected Datadog site host, "" if not yet detected
     void   setSite(const String& site);
 
-    // A single bare team value (e.g. "my-team") ANDed onto every screen's
-    // fetch, set via the web Settings page. Each fetcher in datadog.cpp
-    // builds its own screen-specific query fragment from this — monitors/
-    // SLOs use the "team:x" tag convention, incidents use the "teams:x"
-    // (plural) custom field, on-call filters the team list by name — rather
-    // than making the user know which raw syntax each screen wants.
-    // "" means no scoping.
-    String getTeamScope();
-    void   setTeamScope(const String& team);
-
-    // On-Call's own team selection — see NVS_KEY_ONCALL_TEAM_ID's doc
-    // comment in config.h for why this is separate from getTeamScope().
+    // On-Call's team selection — see NVS_KEY_ONCALL_TEAM_ID's doc comment in
+    // config.h; this now also doubles as Monitors/Incidents/Bits
+    // Investigations' scope (dd::bareTeamScope() in datadog.cpp).
     // "" means not yet resolved.
     String getOnCallTeamId();
     void   setOnCallTeamId(const String& teamId);
@@ -41,6 +32,14 @@ namespace storage {
     // comment in datadog.h for exactly what's sent and why it's opt-in.
     bool   getMetricsEnabled();
     void   setMetricsEnabled(bool v);
+
+    // Separate opt-in — off by default. Gates dd::reportBootEvent() (a
+    // Datadog Event fired only after an abnormal reboot). Kept independent
+    // of getMetricsEnabled() above since custom metrics and Events are both
+    // billable Datadog usage but distinct products a user may want on/off
+    // separately.
+    bool   getEventsEnabled();
+    void   setEventsEnabled(bool v);
 
     void   clearAll();
     bool   hasKeys();             // both api key and app key present

@@ -313,21 +313,21 @@ static void netTask(void*) {
             // One-shot per boot: reports the previous boot's reset reason
             // as a Datadog Event, but only when it was abnormal (panic/
             // watchdog/brownout) — see dd::reportBootEvent()'s doc comment.
-            // Gated on the same opt-in toggle as the metrics gauges below —
-            // Events (like custom metrics) are billable Datadog usage, so
-            // this shouldn't fire for anyone who left device metrics off.
-            if (!bootReportDone && storage::getMetricsEnabled()) {
+            // Gated on its own opt-in toggle, separate from the metrics
+            // gauges below — custom metrics and Events are both billable
+            // Datadog usage, but distinct products a user may want on/off
+            // independently.
+            if (!bootReportDone && storage::getEventsEnabled()) {
                 bootReportDone = true;
                 String berr;
                 dd::reportBootEvent(berr);
             }
 
             // Auto-detect the team scope fallback (dd::bareTeamScope()) once
-            // per boot via filter[me] — only when the manual Team field is
-            // blank, so a user who always intended to type one doesn't pay
-            // for an extra API call they'll never use. Silent, no
+            // per boot via filter[me] — always attempted now that there's no
+            // manual Team field to opt out of it with. Silent, no
             // netJobRunning()/busy overlay, same as the ambient poll below.
-            if (!myTeamsAutoFetchDone && storage::getTeamScope().length() == 0) {
+            if (!myTeamsAutoFetchDone) {
                 myTeamsAutoFetchDone = true;
                 std::vector<dd::Team> myTeams;
                 String terr;
