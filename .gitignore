@@ -5,10 +5,20 @@
 *.elf
 *.bin
 .env
-# Exception: docs/ hosts the pre-built firmware for the browser flasher
-# (docs/index.html + manifest.json) — these ARE meant to be committed and
-# are refreshed by .github/workflows/pages.yml on every push to main.
-!docs/*.bin
+# docs/{bootloader,partitions,boot_app0,firmware}.bin + docs/manifest.json
+# ("latest main") are pages.yml build output, rebuilt fresh into docs/ and
+# uploaded straight to the Pages deployment on every run — never actually
+# committed by any workflow, so there's no reason to track them; doing so
+# in the past just left a stale copy from the initial commit bloating repo
+# history forever. docs/versions/<tag>/ is different: release.yml commits
+# those on purpose (see its own header comment) since they're the
+# permanent, self-hosted artifacts the web flasher's version picker reads —
+# nothing rebuilds an old tag's binaries on demand, so they have to stay in
+# git. `*.bin` above is unanchored (matches recursively, no leading `docs/`
+# needed) — this two-line exception un-ignores just that subtree without
+# also un-ignoring the root docs/*.bin this comment is about excluding.
+docs/manifest.json
+!docs/versions/**/*.bin
 tools/fonts/*.ttf
 
 # Agent instructions and internal dev/design docs — not meant for the public
