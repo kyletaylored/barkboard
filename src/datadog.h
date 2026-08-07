@@ -461,14 +461,16 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float n
 // file's team-scope auto-fetch), only while storage::getEventsEnabled() is
 // on — Events are billable Datadog usage just like custom metrics, but a
 // distinct product, so this has its own opt-in toggle rather than sharing
-// submitDeviceMetrics()'s. Reads
-// esp_reset_reason() and, only when it indicates the previous boot did NOT
-// end cleanly (panic, either watchdog, brownout — not a plain
-// esp_restart()/power-on), fires a Datadog Event (POST /api/v1/events,
-// still DD-API-KEY only) so a crash shows up as a discrete, alertable
-// occurrence rather than something you'd only notice by staring at a
-// reboot-count graph. Always returns true on a clean boot without making
-// any network call — nothing to report.
+// submitDeviceMetrics()'s. Fires a Datadog Event (POST /api/v1/events, still
+// DD-API-KEY only) on every single boot, tagged boot_reason:<reason>
+// (poweron/ext/sw/panic/int_wdt/task_wdt/wdt/brownout/...) — a plain reset-
+// button press or power cycle used to be completely silent (only panic/
+// either watchdog/brownout fired anything), which made "are Events even
+// working" impossible to answer without an actual crash to test against.
+// alert_type still distinguishes the two cases (error for an abnormal
+// reset, info otherwise) so a real crash still stands out — in the Events
+// explorer, in a monitor's severity, and visually — from routine reboots
+// instead of blending in with them.
 bool reportBootEvent(String& err);
 
 // One-shot per firmware version (not per boot) — pushes short_name/unit/

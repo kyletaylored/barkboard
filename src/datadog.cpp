@@ -1534,16 +1534,29 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float n
 }
 
 bool reportBootEvent(String& err) {
-    esp_reset_reason_t reason = esp_reset_reason();
-    if (!resetReasonIsAbnormal(reason)) return true;   // clean boot — nothing to report
-
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
+    esp_reset_reason_t reason = esp_reset_reason();
+    bool abnormal = resetReasonIsAbnormal(reason);
     String reasonStr = String(resetReasonStr(reason));
-    String body = "{\"title\":\"BarkBoard rebooted abnormally (" + reasonStr + ")\","
-                  "\"text\":\"Device " + netcfg::apSsid() + " restarted after a " + reasonStr +
-                  " reset — see barkboard.task.stack_free and barkboard.heap.* around this time for a possible cause.\","
-                  "\"alert_type\":\"error\","
+
+    // Every boot now files an Event when Events are enabled — a plain
+    // reset-button press (ESP_RST_EXT) or power cycle used to be totally
+    // silent, which read as "did Events even work" the moment someone
+    // actually wanted to see one land. alert_type still separates the two
+    // cases (error vs info) so an abnormal reboot still stands out — in
+    // Datadog's Events explorer, in a monitor's severity, and visually
+    // (red vs blue) — from routine ones instead of blending in.
+    String title = abnormal
+        ? ("BarkBoard rebooted abnormally (" + reasonStr + ")")
+        : ("BarkBoard booted (" + reasonStr + ")");
+    String text = abnormal
+        ? ("Device " + netcfg::apSsid() + " restarted after a " + reasonStr +
+           " reset — see barkboard.task.stack_free and barkboard.heap.* around this time for a possible cause.")
+        : ("Device " + netcfg::apSsid() + " booted (" + reasonStr + ").");
+    String body = "{\"title\":\"" + title + "\","
+                  "\"text\":\"" + text + "\","
+                  "\"alert_type\":\"" + String(abnormal ? "error" : "info") + "\","
                   "\"tags\":[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
                   "\",\"boot_reason:" + reasonStr + "\"]}";
 

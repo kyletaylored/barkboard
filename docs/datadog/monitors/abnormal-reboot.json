@@ -1,8 +1,8 @@
 {
   "name": "BarkBoard abnormal reboot detected",
   "type": "event-v2 alert",
-  "query": "events(\"service:barkboard\").rollup(\"count\").last(\"5m\") > 0",
-  "message": "A BarkBoard device just reported an abnormal reboot (panic, watchdog timeout, or brownout \u2014 reportBootEvent() only ever fires for these, never a clean restart). Check {{event.text}} and the device's barkboard.task.stack_free / barkboard.heap.* around this time.",
+  "query": "events(\"service:barkboard source:my_apps status:error\").rollup(\"count\").last(\"5m\") > 0",
+  "message": "A BarkBoard device just reported an abnormal reboot (panic, watchdog timeout, or brownout). reportBootEvent() now fires a Datadog Event on every boot, tagged alert_type:info for a routine reset/power-cycle and alert_type:error only for these \u2014 status:error in the query scopes this monitor to real crashes only. Check {{event.text}} and the device's barkboard.task.stack_free / barkboard.heap.* around this time.",
   "tags": [
     "service:barkboard"
   ],

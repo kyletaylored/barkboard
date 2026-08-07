@@ -353,12 +353,12 @@ static void netTask(void*) {
 
         if (netcfg::isConnected() && isConfiguredThrottled()) {
             // One-shot per boot: reports the previous boot's reset reason
-            // as a Datadog Event, but only when it was abnormal (panic/
-            // watchdog/brownout) — see dd::reportBootEvent()'s doc comment.
-            // Gated on its own opt-in toggle, separate from the metrics
-            // gauges below — custom metrics and Events are both billable
-            // Datadog usage, but distinct products a user may want on/off
-            // independently.
+            // as a Datadog Event on every boot, not just abnormal ones —
+            // see dd::reportBootEvent()'s doc comment for why (alert_type
+            // still separates a real crash from a routine reboot). Gated on
+            // its own opt-in toggle, separate from the metrics gauges below
+            // — custom metrics and Events are both billable Datadog usage,
+            // but distinct products a user may want on/off independently.
             if (!bootReportDone && storage::getEventsEnabled()) {
                 bootReportDone = true;
                 String berr;

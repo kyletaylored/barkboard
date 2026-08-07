@@ -348,15 +348,16 @@ static void sendStatus(const String& banner, bool err=false) {
             "to your own Datadog org every " + String(METRICS_INTERVAL_SEC) + "s, tagged <code>device:" +
             htmlEscape(netcfg::apSsid()) + "</code> — because what's a Datadog dashboard without also monitoring "
             "itself? Custom metrics are billable Datadog usage, so this stays off unless you turn it on.</div>";
-    html += "<label>Crash/reboot events</label>";
+    html += "<label>Boot events</label>";
     bool eventsOn = storage::getEventsEnabled();
     html += "<select name=\"events_enabled\">";
     html += String("<option value=\"off\"") + (!eventsOn ? " selected" : "") + ">Off</option>";
     html += String("<option value=\"on\"")  + (eventsOn  ? " selected" : "") + ">On — send to this Datadog org</option>";
     html += "</select>";
-    html += "<div class=\"bb-note\">Reports abnormal reboots (panic/watchdog/brownout — not a plain restart) as a "
-            "Datadog Event. Separate from device metrics above since Events are also billable Datadog usage, but a "
-            "different product you may want on its own.</div>";
+    html += "<div class=\"bb-note\">Reports every boot (tagged with its reset reason) as a Datadog Event — a real "
+            "crash (panic/watchdog/brownout) shows as an error-severity event, a plain reset/power-cycle as info, so "
+            "both are visible but a real crash still stands out. Separate from device metrics above since Events "
+            "are also billable Datadog usage, but a different product you may want on its own.</div>";
     html += "<button type=\"submit\">Save preferences</button>";
     html += "</form></div>";
 
