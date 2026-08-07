@@ -2,6 +2,14 @@
 #include <Arduino.h>
 #include "datadog.h"
 
+// Diagnostic-only: prints lv_mem_monitor()'s free/used_pct/frag_pct with a
+// label, so consecutive calls' deltas show what a given step actually cost
+// the LVGL pool. Defined in ui.cpp (core 1 only, same as every LVGL call) —
+// declared here as a free function, not inside namespace ui below, so
+// main.cpp's loop() can call it right after each notify*Refreshed() without
+// needing to touch UI internals.
+void logMemCheckpoint(const char* label);
+
 // LVGL screens. Boot/setup flow is fully built; the dashboard rotation
 // covers Overview / Monitors / Incidents / On-Call (BARKBOARD_PLAN.md §8
 // phases 5+7). SLOs land in phase 8 and slot into the same rotation (see

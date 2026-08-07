@@ -366,7 +366,8 @@ static volatile bool s_factoryResetPending = false;
 
 static void rotateTo(int idx, bool fromUser);
 static void onDashGesture(lv_event_t* e);
-static void logMemCheckpoint(const char* label);
+// logMemCheckpoint() is declared in ui.h (not static) — main.cpp calls it
+// too, right after each notify*Refreshed() finishes populating a list.
 static void showMuteOptionsScreen();
 static void showDeclareOptionsScreen();
 static void showBitsConfirmScreen();
@@ -2667,7 +2668,7 @@ static void onDashGesture(lv_event_t*) {
 // call, so the *drop* since the previous checkpoint is that screen's own
 // resident cost. Diagnostic only, core 1 only (same lv_mem_monitor() safety
 // note as logLvglMemTrend() below).
-static void logMemCheckpoint(const char* label) {
+void logMemCheckpoint(const char* label) {
     lv_mem_monitor_t mon;
     lv_mem_monitor(&mon);
     Serial.printf("[ui] mem after %-22s | free=%u used_pct=%u%% frag=%u%%\n",

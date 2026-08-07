@@ -720,23 +720,28 @@ void loop() {
                         const dd::OnCallResult& r = dd::lastOnCallResult();
                         ui::hideBusy();
                         ui::notifyOnCallRefreshed(r.entries, r.hasTeams, r.needsTeamPick);
+                        logMemCheckpoint("notifyOnCallRefreshed");
                         break;
                     }
                     case NetJobType::FetchMonitors:
                         ui::hideBusy();
                         ui::notifyMonitorsListRefreshed();
+                        logMemCheckpoint("notifyMonitorsListRefreshed");
                         break;
                     case NetJobType::FetchIncidents:
                         ui::hideBusy();
                         ui::notifyIncidentsRefreshed();
+                        logMemCheckpoint("notifyIncidentsRefreshed");
                         break;
                     case NetJobType::FetchSlos:
                         ui::hideBusy();
                         ui::notifySlosRefreshed();
+                        logMemCheckpoint("notifySlosRefreshed");
                         break;
                     case NetJobType::FetchBitsInvestigations:
                         ui::hideBusy();
                         ui::notifyBitsInvestigationsRefreshed();
+                        logMemCheckpoint("notifyBitsInvestigationsRefreshed");
                         break;
                     default: break;
                 }
