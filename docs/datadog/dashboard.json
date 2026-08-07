@@ -555,6 +555,43 @@
               "width": 12,
               "height": 3
             }
+          },
+          {
+            "definition": {
+              "title": "API Calls by Endpoint",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "legend_columns": [
+                "sum",
+                "avg",
+                "max"
+              ],
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "sum:barkboard.api.calls{$device,$firmware_version} by {endpoint}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 3
+            }
           }
         ]
       },
@@ -562,7 +599,7 @@
         "x": 0,
         "y": 12,
         "width": 12,
-        "height": 7,
+        "height": 10,
         "is_column_break": true
       }
     },
@@ -602,7 +639,7 @@
       },
       "layout": {
         "x": 0,
-        "y": 19,
+        "y": 22,
         "width": 6,
         "height": 5
       }
@@ -700,7 +737,7 @@
       },
       "layout": {
         "x": 6,
-        "y": 19,
+        "y": 22,
         "width": 6,
         "height": 5
       }
