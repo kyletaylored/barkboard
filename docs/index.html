@@ -584,15 +584,38 @@
       color: var(--ink-dim)
     }
 
-    .bb-dd-head {
-      padding: 22px 22px 4px;
+    .bb-dd-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 22px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    .bb-dd-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .bb-dd-chevron {
+      color: var(--ink-muted);
+      font-size: 12px;
+      transition: transform .15s ease;
+    }
+
+    details[open]>.bb-dd-summary .bb-dd-chevron {
+      transform: rotate(90deg);
+    }
+
+    .bb-dd-body {
+      padding: 0 22px 20px;
     }
 
     .bb-dd-title {
       font-size: 15px;
       font-weight: 700;
       color: var(--ink-strong);
-      margin: 0 0 6px;
     }
 
     .bb-dd-desc {
@@ -606,7 +629,7 @@
       display: grid;
       gap: 1px;
       background: var(--border);
-      margin: 16px 20px 20px;
+      margin: 16px 0 0;
       border: 1px solid var(--border);
       border-radius: 12px;
       overflow: hidden;
@@ -886,77 +909,66 @@
           mobile browsers.</div>
       </div>
 
-      <div class="bb-card">
-        <div class="bb-dd-head">
-          <div class="bb-dd-title">Monitor your BarkBoard in Datadog</div>
-          <p class="bb-dd-desc">If you enable device metrics/events in Settings (off by default),
-            BarkBoard reports its own health back to your org as <code>barkboard.*</code> metrics and Events.
-          </p>
-        </div>
-        <div class="bb-dd-list">
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Device Monitoring dashboard</div>
-              <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
+      <details class="bb-card">
+        <summary class="bb-dd-summary">
+          <span class="bb-dd-title">Monitor your BarkBoard in Datadog</span>
+          <span class="bb-dd-chevron">&#9656;</span>
+        </summary>
+        <div class="bb-dd-body">
+          <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
+            Events in your org (off by default).</p>
+          <div class="bb-dd-list">
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">Device Monitoring dashboard</div>
+                <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
+                </div>
               </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Metric metadata (units + descriptions)</div>
-              <div class="bb-dd-item-desc">Short name/unit/description for every <code>barkboard.*</code> metric, so
-                they show up labeled instead of as bare numbers. BarkBoard pushes this itself once device metrics are
-                enabled — this download is only for applying it by hand (older firmware, or without a device at
-                all) via <a href="https://github.com/kyletaylored/barkboard/blob/main/tools/push_metric_metadata.py"
-                  target="_blank" rel="noopener">tools/push_metric_metadata.py</a>.
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">Device offline (no data)</div>
+                <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
               </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json"
+                download>Download</a>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/metrics.json" download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Device offline (no data)</div>
-              <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
-            </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json"
-              download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Heap usage high</div>
-              <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
-            </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json"
-              download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Task stack headroom low</div>
-              <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512 — approaching overflow
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">Heap usage high</div>
+                <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
               </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json"
+                download>Download</a>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json"
-              download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">WiFi signal poor</div>
-              <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">Task stack headroom low</div>
+                <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512</div>
+              </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json"
+                download>Download</a>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json"
-              download>Download</a>
-          </div>
-          <div class="bb-dd-item">
-            <div>
-              <div class="bb-dd-item-name">Abnormal reboot detected</div>
-              <div class="bb-dd-item-desc">Fires on any panic/watchdog/brownout reboot Event</div>
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">WiFi signal poor</div>
+                <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
+              </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json"
+                download>Download</a>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json"
-              download>Download</a>
+            <div class="bb-dd-item">
+              <div>
+                <div class="bb-dd-item-name">Abnormal reboot detected</div>
+                <div class="bb-dd-item-desc">Fires on panic/watchdog/brownout reboots</div>
+              </div>
+              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json"
+                download>Download</a>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
     </div>
   </div>
 
