@@ -1021,13 +1021,18 @@
     applyTheme(currentThemeMode());
 
     // --- Manifest (firmware version picker + flash part list) ---
-    // "Latest (main)" always points at the root manifest.json/*.bin — the
-    // continuously-updated build pages.yml republishes on every push to main.
-    // Tagged releases (vX.Y.Z) are added below it from versions.json, newest
-    // first — each is a self-hosted copy under versions/<tag>/, published by
-    // release.yml specifically so this page never has to fetch a GitHub
-    // Release's own asset URLs (inconsistent CORS behavior for fetch(), fine
-    // for a plain download link but not for this page's own flashing code).
+    // Tagged releases (vX.Y.Z) come from versions.json, newest first — each
+    // is a self-hosted copy under versions/<tag>/, published by release.yml
+    // specifically so this page never has to fetch a GitHub Release's own
+    // asset URLs (inconsistent CORS behavior for fetch(), fine for a plain
+    // download link but not for this page's own flashing code). Capped to
+    // the 3 most recent so the list doesn't grow forever — older releases
+    // are still on GitHub's Releases page, just not in this dropdown.
+    // "Nightly (main)" (root manifest.json/*.bin, rebuilt on every push to
+    // main by pages.yml) is last, not first — the default pick for a
+    // random visitor should be the last stable release, not whatever's
+    // currently on the tip of main.
+    const MAX_RELEASES_SHOWN = 3;
     let manifestParts = null;
 
     function loadManifest(url) {
@@ -1044,10 +1049,11 @@
     }
 
     fetch('versions.json').then((r) => r.json()).catch(() => []).then((versions) => {
-      const opts = ['<option value="manifest.json">Latest (main)</option>'];
-      for (const v of versions) {
-        opts.push('<option value="' + v.manifest + '">' + v.version + '</option>');
-      }
+      const opts = [];
+      versions.slice(0, MAX_RELEASES_SHOWN).forEach((v, i) => {
+        opts.push('<option value="' + v.manifest + '">' + v.version + (i === 0 ? ' (latest)' : '') + '</option>');
+      });
+      opts.push('<option value="manifest.json">Nightly (main)</option>');
       els.firmwareSelect.innerHTML = opts.join('');
       els.firmwareSelect.disabled = false;
       loadManifest(els.firmwareSelect.value);
