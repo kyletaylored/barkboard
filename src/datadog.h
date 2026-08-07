@@ -445,6 +445,15 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
 // millis() reads per iteration, no new tasks) to always compute. Pass -1
 // for either when no full cycle has completed yet since the last report
 // (e.g. right after boot) — skipped rather than sending a meaningless value.
+//
+// Also sends barkboard.api.calls (type count, tagged endpoint:<name>) — a
+// sum-since-last-report tally of real HTTP requests this device made to
+// Datadog, one series per endpoint (monitor_search, incident_search,
+// oncall_get, metrics_submit, etc. — see datadog.cpp's recordApiCall() call
+// sites for the full tag list). Retries count as separate calls since
+// they're separate real requests against Datadog's API. The tally is
+// swapped out (not just copied) each call, so a slow/failed report doesn't
+// double-count the same calls into the next interval.
 bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float netBusyPct, String& err);
 
 // One-shot per boot (call once from netTask() after the first successful

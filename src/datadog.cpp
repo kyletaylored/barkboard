@@ -8,8 +8,19 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <esp_system.h>   // esp_reset_reason() — reportBootEvent()
+#include <map>
 
 namespace dd {
+
+// Per-endpoint call tally, drained into barkboard.api.calls each metrics
+// report (see submitDeviceMetrics()) — small fixed set of string keys (one
+// per endpoint tag below), never touched from core 1, so no mutex needed:
+// every dd:: fetch/mutate call, and the report/reset itself, only ever runs
+// on netTask (core 0).
+static std::map<String, uint32_t> g_apiCallCounts;
+static void recordApiCall(const char* endpoint) {
+    if (endpoint) g_apiCallCounts[endpoint]++;
+}
 
 // Probe order per BARKBOARD_PLAN.md §2 — most-common-first so the typical
 // case (US1 or EU) resolves in one or two hops rather than the ~25s worst case.
@@ -112,7 +123,7 @@ bool isConfigured() { return storage::hasKeys() && storage::hasSite(); }
 // capped) — the facets-response memory blowup this function's streaming
 // design originally existed to avoid is still a real risk for anything
 // org-size-dependent.
-static bool httpGetJsonRetrying(const String& url, JsonDocument& doc, String& err,
+static bool httpGetJsonRetrying(const char* endpoint, const String& url, JsonDocument& doc, String& err,
                                  const JsonDocument* filter = nullptr, bool buffered = false) {
     // The URL already contains the exact query/filter that went out —
     // logging it here (once, not per retry) covers every screen's fetch
@@ -184,6 +195,7 @@ static bool httpGetJsonRetrying(const String& url, JsonDocument& doc, String& er
         http.addHeader("Accept", "application/json");
         http.addHeader("Connection", "close");
 
+        recordApiCall(endpoint);   // counts the real network attempt, including retries — a retry is a second real call against Datadog's API
         int code = http.GET();
         bool jsonFailed = false;
         if (code == 200) {
@@ -238,7 +250,7 @@ static bool httpGetJsonRetrying(const String& url, JsonDocument& doc, String& er
 // creating a case or declaring two incidents from one tap isn't).
 // outDoc is optional — pass nullptr for calls that don't need the response
 // body (mute/unmute/setIncidentState just check the status code).
-static bool httpMutateJson(const char* method, const String& url, const String& body,
+static bool httpMutateJson(const char* endpoint, const char* method, const String& url, const String& body,
                             JsonDocument* outDoc, String& err, const JsonDocument* filter = nullptr) {
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
@@ -264,6 +276,7 @@ static bool httpMutateJson(const char* method, const String& url, const String& 
     http.addHeader("DD-APPLICATION-KEY", appKey);
     http.addHeader("Content-Type", "application/json");
 
+    recordApiCall(endpoint);
     int code;
     if (strcmp(method, "POST") == 0)      code = http.POST(body);
     else if (strcmp(method, "PATCH") == 0) code = http.PATCH(body);
@@ -319,6 +332,7 @@ bool validateKeysAndDetectSite(const String& apiKey, const String& appKey,
         http.addHeader("Accept", "application/json");
         http.addHeader("Connection", "close");
 
+        recordApiCall("validate_keys");
         int code = http.GET();
         http.end();
         Serial.printf("[dd]   -> HTTP %d\n", code);
@@ -375,7 +389,7 @@ bool fetchMonitorCounts(MonitorCounts& out) {
     JsonDocument filter;
     filter["counts"]["status"] = true;
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, out.error, &filter)) {
+    if (!httpGetJsonRetrying("monitor_search", url, doc, out.error, &filter)) {
         out.lastFetchMs = millis();
         g_lastCounts = out;
         return false;
@@ -430,7 +444,7 @@ bool fetchMonitors(const String& statusFilter, std::vector<Monitor>& out, String
     monFilter["type"] = true;
     monFilter["overall_state_modified"] = true;
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying("monitor_search", url, doc, err, &filter)) return false;
 
     for (JsonObject m : doc["monitors"].as<JsonArray>()) {
         Monitor mon;
@@ -460,7 +474,7 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
     // multi-KB-per-item cost that made unfiltered parsing worth avoiding for
     // the Bits investigations list — not worth the filter risk here either.
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err)) return false;
+    if (!httpGetJsonRetrying("monitor_get", url, doc, err)) return false;
 
     out.id     = doc["id"]             | monitorId;
     out.name   = doc["name"]           | "";
@@ -499,12 +513,12 @@ bool fetchMonitorDetail(long monitorId, Monitor& out, String& err) {
 bool muteMonitor(long monitorId, uint32_t untilEpochSec, String& err) {
     String url = apiBase() + "/api/v1/monitor/" + String(monitorId) + "/mute";
     String body = String("{\"scope\":\"*\",\"end\":") + String(untilEpochSec) + "}";
-    return httpMutateJson("POST", url, body, nullptr, err);
+    return httpMutateJson("monitor_mute", "POST", url, body, nullptr, err);
 }
 
 bool unmuteMonitor(long monitorId, String& err) {
     String url = apiBase() + "/api/v1/monitor/" + String(monitorId) + "/unmute";
-    return httpMutateJson("POST", url, "{\"scope\":\"*\"}", nullptr, err);
+    return httpMutateJson("monitor_unmute", "POST", url, "{\"scope\":\"*\"}", nullptr, err);
 }
 
 static std::vector<Incident> g_lastIncidents;
@@ -542,7 +556,7 @@ bool fetchIncidents(std::vector<Incident>& out, String& err, int limit) {
     incFilter["data"]["attributes"]["commander"]["data"]["attributes"]["name"] = true;
     incFilter["data"]["attributes"]["fields"]["services"]["value"] = true;
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying("incident_search", url, doc, err, &filter)) return false;
 
     for (JsonObject wrapper : doc["data"]["attributes"]["incidents"].as<JsonArray>()) {
         JsonObject item = wrapper["data"];
@@ -582,7 +596,7 @@ bool setIncidentState(const String& incidentId, const String& newState, String& 
     String body = String("{\"data\":{\"id\":\"") + incidentId +
                   "\",\"type\":\"incidents\",\"attributes\":{\"fields\":{\"state\":{\"type\":\"dropdown\",\"value\":\"" +
                   newState + "\"}}}}}";
-    return httpMutateJson("PATCH", url, body, nullptr, err);
+    return httpMutateJson("incident_update", "PATCH", url, body, nullptr, err);
 }
 
 static std::vector<SloSummary> g_lastSlos;
@@ -620,7 +634,7 @@ bool fetchSlos(std::vector<SloSummary>& out, String& err, int limit) {
     // in testing, nowhere near the investigation list's several-KB-per-item
     // cost that motivated trimming that one's page size).
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
+    if (!httpGetJsonRetrying("slo_search", url, doc, err, nullptr, true)) return false;
 
     for (JsonObject item : doc["data"]["attributes"]["slos"].as<JsonArray>()) {
         JsonObject s = item["data"];
@@ -651,7 +665,7 @@ bool fetchSloStatus(const String& sloId, SloStatus& out, String& err) {
     uint32_t from = (now > 3600) ? now - 3600 : 0;
     String url = apiBase() + "/api/v2/slo/" + sloId + "/status?from_ts=" + String(from) + "&to_ts=" + String(now);
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err)) return false;
+    if (!httpGetJsonRetrying("slo_status", url, doc, err)) return false;
 
     JsonObject a = doc["data"]["attributes"];
     out.sliValue             = a["sli"]                     | 0.0;
@@ -671,7 +685,7 @@ bool fetchMyTeams(std::vector<Team>& out, String& err) {
     // static keys).
     String url = apiBase() + "/api/v2/team?filter%5Bme%5D=true&page%5Bsize%5D=20";
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err)) return false;
+    if (!httpGetJsonRetrying("team_list", url, doc, err)) return false;
 
     for (JsonObject item : doc["data"].as<JsonArray>()) {
         Team t;
@@ -715,7 +729,7 @@ bool fetchOnCallForTeamId(const String& teamId, std::vector<OnCallEntry>& out, S
     String url = apiBase() + "/api/v2/on-call/teams/" + teamId +
                  "/on-call?include=responders,escalations,escalations.responders";
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err)) return false;
+    if (!httpGetJsonRetrying("oncall_get", url, doc, err)) return false;
 
     JsonArray included = doc["included"].as<JsonArray>();
 
@@ -797,7 +811,7 @@ bool fetchMetricSeries(const String& query, uint32_t fromEpochSec, uint32_t toEp
     // buffered=true — this endpoint responds chunked (see
     // httpGetJsonRetrying's doc comment); a point count capped by the
     // window/interval keeps the buffered size bounded and safe.
-    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
+    if (!httpGetJsonRetrying("metric_query", url, doc, err, nullptr, true)) return false;
 
     JsonArray series = doc["series"].as<JsonArray>();
     if (series.size() == 0) {
@@ -1130,8 +1144,12 @@ static bool fetchNonMetricChartSeries(const Monitor& monitor, const char* wrappe
     String body = String("{\"filter\":{\"query\":\"") + jsonEscape(q) +
                   "\",\"from\":\"" + String((long long)from * 1000) + "\",\"to\":\"" + String((long long)to * 1000) +
                   "\"},\"compute\":[{\"aggregation\":\"count\",\"type\":\"timeseries\",\"interval\":\"1m\"}]}";
+    // kindNameForError is already the low-cardinality "log"/"trace-analytics"/
+    // "rum" set (one shared function, three known callers) — reused as-is
+    // for the endpoint tag instead of introducing a parallel enum.
+    String endpointTag = String("chart_") + kindNameForError;
     JsonDocument doc;
-    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    if (!httpMutateJson(endpointTag.c_str(), "POST", url, body, &doc, err)) return false;
 
     JsonArray buckets = doc["data"]["buckets"].as<JsonArray>();
     if (buckets.size() == 0) { err = "no buckets returned"; return false; }
@@ -1195,7 +1213,7 @@ bool fetchCaseProjects(std::vector<CaseProject>& out, String& err) {
     pf["attributes"]["key"] = true;
     pf["attributes"]["name"] = true;
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, &filter)) return false;
+    if (!httpGetJsonRetrying("case_projects", url, doc, err, &filter)) return false;
 
     for (JsonObject p : doc["data"].as<JsonArray>()) {
         CaseProject cp;
@@ -1220,7 +1238,7 @@ bool createCase(const String& title, const String& projectId, String& outCaseKey
                   "\"},\"relationships\":{\"project\":{\"data\":{\"type\":\"project\",\"id\":\"" +
                   projectId + "\"}}}}}";
     JsonDocument doc;
-    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    if (!httpMutateJson("case_create", "POST", url, body, &doc, err)) return false;
     outCaseKey = doc["data"]["attributes"]["key"] | "";
     return true;
 }
@@ -1230,7 +1248,7 @@ bool createIncident(const String& title, String& outIncidentId, String& err) {
     String body = String("{\"data\":{\"type\":\"incidents\",\"attributes\":{\"title\":\"") +
                   jsonEscape(title) + "\"}}}";
     JsonDocument doc;
-    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    if (!httpMutateJson("incident_create", "POST", url, body, &doc, err)) return false;
     outIncidentId = doc["data"]["id"] | "";
     return true;
 }
@@ -1261,7 +1279,7 @@ static bool fetchLatestMonitorAlertEvent(long monitorId, String& outEventId, lon
     itemFilter["attributes"]["attributes"]["timestamp"] = true;
     itemFilter["attributes"]["attributes"]["monitor_groups"] = true;
     JsonDocument doc;
-    if (!httpMutateJson("POST", url, body, &doc, err, &filter)) return false;
+    if (!httpMutateJson("events_search", "POST", url, body, &doc, err, &filter)) return false;
 
     JsonArray data = doc["data"].as<JsonArray>();
     if (data.size() == 0) { err = "no recent alert event found for this monitor"; return false; }
@@ -1285,7 +1303,7 @@ bool triggerBitsInvestigation(long monitorId, String& outInvestigationId, String
                   String(monitorId) + ",\"event_id\":\"" + eventId + "\",\"event_ts\":" +
                   String(eventTsMs) + "}}}}}";
     JsonDocument doc;
-    if (!httpMutateJson("POST", url, body, &doc, err)) return false;
+    if (!httpMutateJson("bits_trigger", "POST", url, body, &doc, err)) return false;
     outInvestigationId = doc["data"]["attributes"]["investigation_id"] | "";
     return true;
 }
@@ -1335,7 +1353,7 @@ bool fetchBitsInvestigations(std::vector<BitsInvestigation>& out, String& err) {
     if (scope.length()) url += "&query=" + urlEncode(scope);
 
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
+    if (!httpGetJsonRetrying("bits_search", url, doc, err, nullptr, true)) return false;
 
     for (JsonObject item : doc["data"]["attributes"]["response"]["investigations"].as<JsonArray>()) {
         BitsInvestigation inv;
@@ -1368,7 +1386,7 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
     // single call this function makes, not something out.conclusionSummary
     // ever retains.
     JsonDocument doc;
-    if (!httpGetJsonRetrying(url, doc, err, nullptr, true)) return false;
+    if (!httpGetJsonRetrying("bits_get", url, doc, err, nullptr, true)) return false;
 
     JsonObject a = doc["data"]["attributes"];
     out.title  = a["title"]  | "";
@@ -1493,10 +1511,25 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float n
                     String(ts) + ",\"value\":" + String((double)stacks[i].busyPct, 2) + "}],\"tags\":" + taskTags + "}";
         }
     }
+
+    // type 1 = count — a sum-since-last-report of real HTTP requests this
+    // device made, not a point-in-time reading like the gauges above.
+    // Drained (not just read) here: each report should reflect calls made
+    // since the previous one, not a running total that never resets — and
+    // this function only ever runs on netTask (core 0), same as every
+    // recordApiCall() site, so no mutex is needed around the swap.
+    std::map<String, uint32_t> callCounts;
+    callCounts.swap(g_apiCallCounts);
+    for (const auto& kv : callCounts) {
+        String endpointTags = "[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
+                               "\",\"endpoint:" + kv.first + "\"]";
+        body += ",{\"metric\":\"barkboard.api.calls\",\"type\":1,\"points\":[{\"timestamp\":" +
+                String(ts) + ",\"value\":" + String((double)kv.second, 2) + "}],\"tags\":" + endpointTags + "}";
+    }
     body += "]}";
 
     String url = apiBase() + "/api/v2/series";
-    return httpMutateJson("POST", url, body, nullptr, err);
+    return httpMutateJson("metrics_submit", "POST", url, body, nullptr, err);
 }
 
 bool reportBootEvent(String& err) {
@@ -1514,7 +1547,7 @@ bool reportBootEvent(String& err) {
                   "\",\"boot_reason:" + reasonStr + "\"]}";
 
     String url = apiBase() + "/api/v1/events";
-    return httpMutateJson("POST", url, body, nullptr, err);
+    return httpMutateJson("event_submit", "POST", url, body, nullptr, err);
 }
 
 }
