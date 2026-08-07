@@ -1214,7 +1214,16 @@
       });
     }
 
-    fetch('versions.json').then((r) => r.json()).catch(() => []).then((versions) => {
+    // Fetched from raw.githubusercontent.com, not the same-origin copy —
+    // GitHub Pages' own edge cache here is keyed by path only (confirmed
+    // live: a cache-busting query string made no difference at all, same
+    // stale response either way) with a 10-minute max-age, so a brand-new
+    // release could sit invisible in this dropdown for up to that long.
+    // raw.githubusercontent.com serves the identical file with a shorter
+    // 5-minute cache and sends Access-Control-Allow-Origin: * (confirmed
+    // live), so this cross-origin fetch just works without a CORS proxy.
+    fetch('https://raw.githubusercontent.com/kyletaylored/barkboard/main/docs/versions.json')
+      .then((r) => r.json()).catch(() => []).then((versions) => {
       const opts = [];
       versions.slice(0, MAX_RELEASES_SHOWN).forEach((v, i) => {
         opts.push('<option value="' + v.manifest + '">' + v.version + (i === 0 ? ' (latest)' : '') + '</option>');
