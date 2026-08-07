@@ -88,12 +88,37 @@ jobs:
             echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
           fi
 
+      - name: Check whether this version was already released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # Guards against exactly what happened during the GitHub Actions
+          # outage on 2026-08-06: a tag push's webhook delivery can be
+          # delayed for hours, and if the release was already cut in the
+          # meantime (e.g. via workflow_dispatch, not waiting on the
+          # eventually-delayed webhook), that stale webhook still fires
+          # this workflow later — without this check it re-ran the whole
+          # job, duplicating the CHANGELOG.md/docs/versions.json commit
+          # before finally failing at `gh release create` (which does
+          # refuse to recreate an existing release, just too late — after
+          # the duplicate commit already landed on main). One `gh release
+          # view` up front makes the whole job a clean no-op instead.
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists — nothing to do."
+            echo "ALREADY_RELEASED=true" >> "$GITHUB_ENV"
+          else
+            echo "ALREADY_RELEASED=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up Python
+        if: env.ALREADY_RELEASED != 'true'
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Cache PlatformIO packages
+        if: env.ALREADY_RELEASED != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -104,12 +129,15 @@ jobs:
             ${{ runner.os }}-pio-
 
       - name: Install PlatformIO
+        if: env.ALREADY_RELEASED != 'true'
         run: pip install --upgrade platformio
 
       - name: Build firmware (cyd environment)
+        if: env.ALREADY_RELEASED != 'true'
         run: pio run -e cyd
 
       - name: Switch the working tree to main
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           # The build above ran against the tag's own commit (correct — the
@@ -126,6 +154,7 @@ jobs:
           git checkout -B main origin/main
 
       - name: Copy binaries into a versioned docs/ folder
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           BUILD_DIR=.pio/build/cyd
@@ -146,6 +175,7 @@ jobs:
           cp "$BOOT_APP0" "$OUT_DIR/boot_app0.bin"
 
       - name: Write this version's manifest.json
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           python3 -c "
@@ -172,6 +202,7 @@ jobs:
           "
 
       - name: Generate changelog since the previous tag
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           # Newest-first by creation date, excluding the tag we're releasing
@@ -199,6 +230,7 @@ jobs:
           cat /tmp/release-notes.md
 
       - name: Update docs/versions.json and CHANGELOG.md
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           python3 -c "
@@ -228,6 +260,7 @@ jobs:
           mv /tmp/CHANGELOG.md CHANGELOG.md
 
       - name: Commit versioned artifacts + changelog back to main
+        if: env.ALREADY_RELEASED != 'true'
         run: |
           set -eu
           git config user.name "github-actions[bot]"
@@ -239,6 +272,7 @@ jobs:
           git push origin main
 
       - name: Create GitHub Release
+        if: env.ALREADY_RELEASED != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -255,13 +289,16 @@ jobs:
             "docs/versions/${VERSION}/boot_app0.bin"
 
       - name: Setup Pages
+        if: env.ALREADY_RELEASED != 'true'
         uses: actions/configure-pages@v6
 
       - name: Upload Pages artifact
+        if: env.ALREADY_RELEASED != 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
       - name: Deploy to GitHub Pages
+        if: env.ALREADY_RELEASED != 'true'
         id: deployment
         uses: actions/deploy-pages@v5

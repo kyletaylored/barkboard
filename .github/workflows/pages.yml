@@ -112,18 +112,38 @@ jobs:
           # rather than hand-keeping two tracked copies in sync.
           cp assets/source/barkboard-banner.png docs/barkboard-banner.png
 
-      - name: Stamp manifest.json with the build version
+      - name: Write manifest.json for this build
         run: |
           set -eu
           VERSION=$(git describe --tags --always --dirty)
           echo "version: $VERSION"
+          # Generated from scratch every run, same as release.yml's per-version
+          # manifest — this used to just *stamp* the version field into an
+          # already-tracked docs/manifest.json, which broke the moment that
+          # file stopped being tracked (it's build output now, like the
+          # .bin's above; see the commit that untracked it) since there was
+          # nothing left to load and stamp. Generating it here removes that
+          # "must already exist in the checkout" assumption entirely.
           python3 -c "
           import json
-          with open('docs/manifest.json') as f:
-              m = json.load(f)
-          m['version'] = '$VERSION'
+          manifest = {
+              'name': 'BarkBoard',
+              'version': '$VERSION',
+              'new_install_prompt_erase': True,
+              'builds': [
+                  {
+                      'chipFamily': 'ESP32',
+                      'parts': [
+                          {'path': 'bootloader.bin', 'offset': 4096},
+                          {'path': 'partitions.bin', 'offset': 32768},
+                          {'path': 'boot_app0.bin', 'offset': 57344},
+                          {'path': 'firmware.bin', 'offset': 65536},
+                      ],
+                  }
+              ],
+          }
           with open('docs/manifest.json', 'w') as f:
-              json.dump(m, f, indent=2)
+              json.dump(manifest, f, indent=2)
               f.write('\n')
           "
 
