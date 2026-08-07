@@ -411,6 +411,13 @@ static void netTask(void*) {
                 netBusyCount = 0;
                 String merr;
                 dd::submitDeviceMetrics(g_loopTaskHandle, loopBusyPct, thisNetBusyPct, merr);
+
+                // Cheap to call every interval — it's a no-op string compare
+                // once storage::getMetricMetadataVersion() already matches
+                // this build, so a brand-new install only pays the real
+                // 10-PUT-request cost once, not every 60s forever.
+                String metaErr;
+                dd::pushMetricMetadataIfNeeded(metaErr);
             }
 
             long monitorId;

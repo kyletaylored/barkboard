@@ -102,6 +102,14 @@ void storage::setEventsEnabled(bool v) {
     prefs.putBool(NVS_KEY_EVENTS_ENABLED, v);
 }
 
+String storage::getMetricMetadataVersion() {
+    return prefs.getString(NVS_KEY_METRIC_METADATA_VER, "");
+}
+
+void storage::setMetricMetadataVersion(const String& v) {
+    prefs.putString(NVS_KEY_METRIC_METADATA_VER, v);
+}
+
 void storage::clearAll() {
     prefs.clear();
 }

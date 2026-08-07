@@ -280,6 +280,7 @@ static bool httpMutateJson(const char* endpoint, const char* method, const Strin
     int code;
     if (strcmp(method, "POST") == 0)      code = http.POST(body);
     else if (strcmp(method, "PATCH") == 0) code = http.PATCH(body);
+    else if (strcmp(method, "PUT") == 0)   code = http.PUT(body);
     else { err = "unsupported method"; http.end(); return false; }
 
     bool ok = (code >= 200 && code < 300);
@@ -1548,6 +1549,68 @@ bool reportBootEvent(String& err) {
 
     String url = apiBase() + "/api/v1/events";
     return httpMutateJson("event_submit", "POST", url, body, nullptr, err);
+}
+
+// Keep in sync by hand with docs/datadog/metrics.json (tools/push_metric_metadata.py's
+// data file for pushing this same metadata against an *existing* org from a
+// dev machine) — this is the on-device equivalent, so a brand-new install
+// gets labeled metrics automatically instead of only working for whoever
+// happens to notice the website's download link and run that script. Every
+// unit id here was confirmed live against Datadog's real unit list before
+// being committed (see push_metric_metadata.py's doc comment) — a typo
+// fails loudly (HTTP 404 "unit not found") rather than silently applying
+// nothing.
+struct MetricMeta { const char* metric; const char* shortName; const char* unit; const char* description; };
+static const MetricMeta METRIC_METADATA[] = {
+    { "barkboard.heap.free", "free heap", "byte",
+      "Free heap memory on the device right now." },
+    { "barkboard.heap.min_free", "min free heap", "byte",
+      "Lowest free-heap reading observed since boot — the low-water mark that actually catches a slow leak, unlike the point-in-time free reading." },
+    { "barkboard.heap.max_alloc", "max allocatable block", "byte",
+      "Largest contiguous free heap block — a fragmentation signal distinct from total free heap; can be low even when free heap looks healthy." },
+    { "barkboard.heap.size", "heap size", "byte",
+      "Total heap size available to the device." },
+    { "barkboard.heap.used_pct", "heap used", "percent",
+      "Percentage of heap currently in use." },
+    { "barkboard.wifi.rssi", "WiFi RSSI", "decibel-milliwatt",
+      "WiFi signal strength (RSSI) of the device's connection to its access point." },
+    { "barkboard.uptime", "uptime", "second",
+      "Seconds since the device last booted." },
+    { "barkboard.task.stack_free", "task stack free", "byte",
+      "Minimum free stack space observed for a FreeRTOS task since boot (tagged task:loop/task:dd-net) — a high-water mark, not the current value." },
+    { "barkboard.task.busy_pct", "task busy", "percent",
+      "Share of a task's own loop cycle spent working versus asleep, averaged since the last report. A coarse proxy, not true CPU utilization — real per-task CPU% isn't available on this hardware/framework combination." },
+    { "barkboard.api.calls", "API calls", "request",
+      "Number of HTTP requests the device made to the Datadog API since the last report, tagged by endpoint. A retry counts as a separate call." },
+};
+
+// One-shot per firmware version, same reasoning as reportBootEvent()'s
+// per-boot guard: metadata almost never changes, so re-pushing it every
+// report (or every boot) would just be 10 extra HTTP calls for nothing.
+// Gated on BARKBOARD_VERSION rather than a plain bool so a future release
+// that tweaks a description/unit re-pushes once instead of staying stale
+// forever. Only marks storage::setMetricMetadataVersion() once every single
+// entry succeeds — a partial failure (one flaky call) leaves it unmarked so
+// the next metrics-report interval just retries the whole set; PUT is
+// idempotent, so redoing already-succeeded entries is harmless.
+bool pushMetricMetadataIfNeeded(String& err) {
+    if (storage::getMetricMetadataVersion() == BARKBOARD_VERSION) return true;
+    if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
+
+    bool allOk = true;
+    for (const MetricMeta& m : METRIC_METADATA) {
+        String url = apiBase() + "/api/v1/metrics/" + m.metric;
+        String body = String("{\"short_name\":\"") + jsonEscape(m.shortName) +
+                      "\",\"unit\":\"" + jsonEscape(m.unit) +
+                      "\",\"description\":\"" + jsonEscape(m.description) + "\"}";
+        String oneErr;
+        if (!httpMutateJson("metric_metadata", "PUT", url, body, nullptr, oneErr)) {
+            allOk = false;
+            err = oneErr;   // last failure wins — enough to see something went wrong in Serial
+        }
+    }
+    if (allOk) storage::setMetricMetadataVersion(BARKBOARD_VERSION);
+    return allOk;
 }
 
 }

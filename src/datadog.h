@@ -471,4 +471,20 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float n
 // any network call — nothing to report.
 bool reportBootEvent(String& err);
 
+// One-shot per firmware version (not per boot) — pushes short_name/unit/
+// description metadata (PUT /api/v1/metrics/<name>) for every barkboard.*
+// metric, so a brand-new device reporting metrics for the first time shows
+// up labeled in Datadog's UI (metrics explorer, dashboards, monitor
+// creation) instead of as bare unlabeled gauges — without requiring anyone
+// to separately find and run tools/push_metric_metadata.py by hand. Skips
+// entirely (returns true, no network call) once storage::getMetricMetadataVersion()
+// already matches BARKBOARD_VERSION; only advances that stored version once
+// every metric's PUT succeeds, so a transient failure just retries whole on
+// the next metrics-report interval rather than leaving some metrics
+// permanently unlabeled. Gate this call on storage::getMetricsEnabled()
+// (opt-in) at the call site, same as submitDeviceMetrics() — metric
+// metadata is meaningless if you've never opted into sending the metrics
+// it describes.
+bool pushMetricMetadataIfNeeded(String& err);
+
 }

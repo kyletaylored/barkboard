@@ -45,6 +45,11 @@ namespace storage {
     bool   getEventsEnabled();
     void   setEventsEnabled(bool v);
 
+    // Firmware version string dd::pushMetricMetadataIfNeeded() last
+    // successfully pushed barkboard.* metric metadata for. "" means never.
+    String getMetricMetadataVersion();
+    void   setMetricMetadataVersion(const String& v);
+
     void   clearAll();
     bool   hasKeys();             // both api key and app key present
     bool   hasSite();

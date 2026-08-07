@@ -81,6 +81,13 @@
 // on — independent of the dashboard's own data-poll interval; these gauges
 // don't need to be nearly as fresh as monitor/incident counts.
 #define METRICS_INTERVAL_SEC 60
+// Stores the firmware version string metric metadata (short_name/unit/
+// description for every barkboard.* metric — see dd::pushMetricMetadataIfNeeded()'s
+// doc comment in datadog.h) was last successfully pushed for. "" means never
+// pushed. Compared against BARKBOARD_VERSION, not a bool, so a firmware
+// update whose metadata text actually changed re-pushes once instead of
+// staying silently stale forever.
+#define NVS_KEY_METRIC_METADATA_VER "dd_metadata_v"
 // On-Call's team selection, auto-detected from the API-key-owning user's own
 // team memberships (GET /api/v2/team?filter[me]=true) rather than typed in.
 // "" means not yet resolved — set automatically when filter[me] returns

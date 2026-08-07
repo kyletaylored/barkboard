@@ -2,15 +2,17 @@
 """Push short_name/unit/description metadata for every barkboard.* metric
 (docs/datadog/metrics.json) so Datadog's own UI — dashboards, the metrics
 explorer, monitor creation — shows a real label and unit instead of a bare
-gauge value. This is Datadog account state, not something the device itself
-can set (there's no metadata-editing surface in the Metrics submission API,
-only a separate PUT /api/v1/metrics/<name> call, and metadata can only be
-set for a metric that has already been submitted at least once) — so it's a
-one-time (or "ran again after adding a new metric") setup script instead of
-firmware behavior, same reasoning as this repo not provisioning the
-dashboard/monitors from the device (see docs/datadog/dashboard.json and
-docs/datadog/monitors/*.json, which are downloaded and applied by hand for
-the same reason).
+gauge value.
+
+Firmware running dd::pushMetricMetadataIfNeeded() (src/datadog.cpp) already
+does this itself, once per firmware version, whenever device metrics are
+enabled in Settings — so most users never need this script at all. It's kept
+around for: a device still running an older firmware build from before that
+existed, re-pushing after hand-editing metrics.json without bumping
+BARKBOARD_VERSION (the on-device version-gate wouldn't notice a text-only
+change), or pushing against an org without flashing/enabling anything on a
+real device at all. Keep docs/datadog/metrics.json and the METRIC_METADATA
+array in src/datadog.cpp in sync by hand if you change either one.
 
 `unit` values are validated against Datadog's own metric-unit list — a typo
 here fails loudly (HTTP 404 "unit not found") rather than silently applying
