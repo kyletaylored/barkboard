@@ -16,7 +16,7 @@
       "layout": {
         "x": 0,
         "y": 0,
-        "width": 2,
+        "width": 3,
         "height": 2
       }
     },
@@ -64,9 +64,9 @@
         "precision": 0
       },
       "layout": {
-        "x": 2,
+        "x": 3,
         "y": 0,
-        "width": 2,
+        "width": 3,
         "height": 2
       }
     },
@@ -114,9 +114,9 @@
         "precision": 1
       },
       "layout": {
-        "x": 4,
+        "x": 6,
         "y": 0,
-        "width": 4,
+        "width": 3,
         "height": 2
       }
     },
@@ -164,9 +164,9 @@
         "precision": 0
       },
       "layout": {
-        "x": 8,
+        "x": 9,
         "y": 0,
-        "width": 4,
+        "width": 3,
         "height": 2
       }
     },
