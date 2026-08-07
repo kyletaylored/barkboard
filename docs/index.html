@@ -888,55 +888,71 @@
 
       <div class="bb-card">
         <div class="bb-dd-head">
-          <div class="bb-dd-title">Monitor your own BarkBoard in Datadog</div>
-          <p class="bb-dd-desc">If you turn on device metrics/events in Settings (off by default — see the README),
+          <div class="bb-dd-title">Monitor your BarkBoard in Datadog</div>
+          <p class="bb-dd-desc">If you enable device metrics/events in Settings (off by default),
             BarkBoard reports its own health back to your org as <code>barkboard.*</code> metrics and Events.
-            Download the same dashboard and monitors used to build this project and import them into your own
-            org — Dashboards → New Dashboard → <i>Import dashboard JSON</i>, and Monitors → New Monitor →
-            <i>Import Monitor Definition</i>, respectively.</p>
+          </p>
         </div>
         <div class="bb-dd-list">
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">Device Monitoring dashboard</div>
-              <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events</div>
+              <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
+              </div>
             </div>
             <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Metric metadata (units + descriptions)</div>
+              <div class="bb-dd-item-desc">Short name/unit/description for every <code>barkboard.*</code> metric, so
+                they show up labeled instead of as bare numbers. Requires running a script with your own API/App
+                keys — see <a href="https://github.com/kyletaylored/barkboard/blob/main/tools/push_metric_metadata.py"
+                  target="_blank" rel="noopener">tools/push_metric_metadata.py</a>.
+              </div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/metrics.json" download>Download</a>
           </div>
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">Device offline (no data)</div>
               <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json" download>Download</a>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json"
+              download>Download</a>
           </div>
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">Heap usage high</div>
               <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json" download>Download</a>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json"
+              download>Download</a>
           </div>
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">Task stack headroom low</div>
-              <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512 — approaching overflow</div>
+              <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512 — approaching overflow
+              </div>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json" download>Download</a>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json"
+              download>Download</a>
           </div>
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">WiFi signal poor</div>
               <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json" download>Download</a>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json"
+              download>Download</a>
           </div>
           <div class="bb-dd-item">
             <div>
               <div class="bb-dd-item-name">Abnormal reboot detected</div>
               <div class="bb-dd-item-desc">Fires on any panic/watchdog/brownout reboot Event</div>
             </div>
-            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json" download>Download</a>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json"
+              download>Download</a>
           </div>
         </div>
       </div>
@@ -1019,7 +1035,7 @@
       firmwareSelect: document.getElementById('firmwareSelect'),
     };
 
-    els.copyright.textContent = 'Open source, made with 💜 by Kyle Taylor and Datadog © ' + new Date().getFullYear();
+    els.copyright.innerHTML = 'Open source, made with 💜 by Kyle Taylor with Datadog © ' + new Date().getFullYear() + '<br /><i>Not an official Datadog product.</i>';
 
     const state = {
       connected: false,

@@ -1,0 +1,62 @@
+[
+  {
+    "metric": "barkboard.heap.free",
+    "short_name": "free heap",
+    "unit": "byte",
+    "description": "Free heap memory on the device right now."
+  },
+  {
+    "metric": "barkboard.heap.min_free",
+    "short_name": "min free heap",
+    "unit": "byte",
+    "description": "Lowest free-heap reading observed since boot — the low-water mark that actually catches a slow leak, unlike the point-in-time free reading."
+  },
+  {
+    "metric": "barkboard.heap.max_alloc",
+    "short_name": "max allocatable block",
+    "unit": "byte",
+    "description": "Largest contiguous free heap block — a fragmentation signal distinct from total free heap; can be low even when free heap looks healthy."
+  },
+  {
+    "metric": "barkboard.heap.size",
+    "short_name": "heap size",
+    "unit": "byte",
+    "description": "Total heap size available to the device."
+  },
+  {
+    "metric": "barkboard.heap.used_pct",
+    "short_name": "heap used",
+    "unit": "percent",
+    "description": "Percentage of heap currently in use."
+  },
+  {
+    "metric": "barkboard.wifi.rssi",
+    "short_name": "WiFi RSSI",
+    "unit": "decibel-milliwatt",
+    "description": "WiFi signal strength (RSSI) of the device's connection to its access point."
+  },
+  {
+    "metric": "barkboard.uptime",
+    "short_name": "uptime",
+    "unit": "second",
+    "description": "Seconds since the device last booted."
+  },
+  {
+    "metric": "barkboard.task.stack_free",
+    "short_name": "task stack free",
+    "unit": "byte",
+    "description": "Minimum free stack space observed for a FreeRTOS task since boot (tagged task:loop/task:dd-net) — a high-water mark, not the current value."
+  },
+  {
+    "metric": "barkboard.task.busy_pct",
+    "short_name": "task busy",
+    "unit": "percent",
+    "description": "Share of a task's own loop cycle spent working versus asleep, averaged since the last report. A coarse proxy, not true CPU utilization — real per-task CPU% isn't available on this hardware/framework combination."
+  },
+  {
+    "metric": "barkboard.api.calls",
+    "short_name": "API calls",
+    "unit": "request",
+    "description": "Number of HTTP requests the device made to the Datadog API since the last report, tagged by endpoint. A retry counts as a separate call."
+  }
+]
