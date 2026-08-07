@@ -1756,6 +1756,7 @@ static void buildOnCall() {
     lv_obj_set_style_bg_color(s_ocCurrentCard, COLOR_PURPLE, 0);
     lv_obj_set_style_border_width(s_ocCurrentCard, 0, 0);
     lv_obj_set_style_radius(s_ocCurrentCard, 8, 0);
+    lv_obj_set_style_pad_all(s_ocCurrentCard, 0, 0);
     lv_obj_clear_flag(s_ocCurrentCard, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_ocCurrentCard, LV_OBJ_FLAG_HIDDEN);   // shown once real data lands
 
