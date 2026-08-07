@@ -366,6 +366,7 @@ static volatile bool s_factoryResetPending = false;
 
 static void rotateTo(int idx, bool fromUser);
 static void onDashGesture(lv_event_t* e);
+static void logMemCheckpoint(const char* label);
 static void showMuteOptionsScreen();
 static void showDeclareOptionsScreen();
 static void showBitsConfirmScreen();
@@ -994,6 +995,7 @@ bool ui::monitorMutePending(long& outId, uint32_t& outUntilEpochSec) {
 
 static void buildDetailScreenIfNeeded() {
     if (s_detailScr) return;
+    logMemCheckpoint("before Monitor Detail");
     s_detailScr = lv_obj_create(nullptr);
     styleFullscreen(s_detailScr);
 
@@ -1257,6 +1259,7 @@ static void buildDetailScreenIfNeeded() {
     lv_obj_set_size(s_detailMuteResult, SCREEN_WIDTH - 24, 16);
     lv_label_set_long_mode(s_detailMuteResult, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(s_detailMuteResult, 12, 187);
+    logMemCheckpoint("after Monitor Detail");
 }
 
 // Swaps the Mute-slot's icon/text/color between "Mute" (unmuted — tap opens
@@ -2037,6 +2040,7 @@ bool ui::bitsInvestigationDetailRequestPending(String& outId) {
 
 static void buildBitsInvestigationDetailIfNeeded() {
     if (s_bitsInvDetailScr) return;
+    logMemCheckpoint("before Bits Investigation Detail");
     s_bitsInvDetailScr = lv_obj_create(nullptr);
     styleFullscreen(s_bitsInvDetailScr);   // NOT scrollable — back button/title/status stay fixed
 
@@ -2090,6 +2094,7 @@ static void buildBitsInvestigationDetailIfNeeded() {
     lv_obj_set_width(s_bitsInvDetailConclSummary, SCREEN_WIDTH - 24);
     lv_label_set_long_mode(s_bitsInvDetailConclSummary, LV_LABEL_LONG_WRAP);
     lv_obj_set_pos(s_bitsInvDetailConclSummary, 0, 40);
+    logMemCheckpoint("after Bits Investigation Detail");
 }
 
 void ui::showBitsInvestigationDetail(const dd::BitsInvestigationDetail& detail, const String& err) {
@@ -2115,6 +2120,7 @@ void ui::showBitsInvestigationDetail(const dd::BitsInvestigationDetail& detail, 
 
 static void buildSloDetailIfNeeded() {
     if (s_sloDetailScr) return;
+    logMemCheckpoint("before SLO Detail");
     s_sloDetailScr = lv_obj_create(nullptr);
     styleFullscreen(s_sloDetailScr);
 
@@ -2160,6 +2166,7 @@ static void buildSloDetailIfNeeded() {
     lv_obj_set_style_text_font(s_sloDetailMeta, &outfit_thin_12, 0);
     lv_obj_set_style_text_color(s_sloDetailMeta, COLOR_MUTED, 0);
     lv_obj_align(s_sloDetailMeta, LV_ALIGN_BOTTOM_MID, 0, -12);
+    logMemCheckpoint("after SLO Detail");
 }
 
 void ui::showSloDetail(const dd::SloSummary& summary, const dd::SloStatus& status, bool statusOk) {
@@ -2199,6 +2206,7 @@ void ui::showSloDetail(const dd::SloSummary& summary, const dd::SloStatus& statu
 
 static void buildIncidentDetailIfNeeded() {
     if (s_incDetailScr) return;
+    logMemCheckpoint("before Incident Detail");
     s_incDetailScr = lv_obj_create(nullptr);
     styleFullscreen(s_incDetailScr);
 
@@ -2258,6 +2266,7 @@ static void buildIncidentDetailIfNeeded() {
     s_incDetailResult = lv_label_create(s_incDetailScr);
     lv_obj_set_style_text_font(s_incDetailResult, &outfit_thin_12, 0);
     lv_obj_set_pos(s_incDetailResult, 12, 198);
+    logMemCheckpoint("after Incident Detail");
 }
 
 void ui::showIncidentDetail(const dd::Incident& inc) {
@@ -2311,6 +2320,7 @@ void ui::applyIncidentAdvanceResult(bool ok, const String& newState, const Strin
 
 static void buildSettingsIfNeeded() {
     if (s_settingsScr) return;
+    logMemCheckpoint("before Settings");
     s_settingsScr = lv_obj_create(nullptr);
     styleFullscreen(s_settingsScr);
 
@@ -2394,6 +2404,7 @@ static void buildSettingsIfNeeded() {
     s_settingsResult = lv_label_create(s_settingsScr);
     lv_obj_set_style_text_font(s_settingsResult, &outfit_thin_12, 0);
     lv_obj_align(s_settingsResult, LV_ALIGN_BOTTOM_RIGHT, -12, -20);
+    logMemCheckpoint("after Settings");
 }
 
 void ui::showSettings() {
@@ -2648,17 +2659,40 @@ static void onDashGesture(lv_event_t*) {
     else if (d == LV_DIR_BOTTOM) refreshCurrentDash();
 }
 
+// Per-screen breakdown of buildDashboard()'s LVGL pool cost — lv_mem_monitor()
+// only reports pool-wide aggregates (LVGL 8.x's TLSF allocator has no
+// per-object "who owns this" introspection), so this is the finest-grained
+// answer available: print the pool's free bytes right after each build*()
+// call, so the *drop* since the previous checkpoint is that screen's own
+// resident cost. Diagnostic only, core 1 only (same lv_mem_monitor() safety
+// note as logLvglMemTrend() below).
+static void logMemCheckpoint(const char* label) {
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    Serial.printf("[ui] mem after %-22s | free=%u used_pct=%u%% frag=%u%%\n",
+                  label, mon.free_size, mon.used_pct, mon.frag_pct);
+}
+
 static void buildDashboard() {
+    logMemCheckpoint("boot (pre-dashboard)");
     for (int i = 0; i < DASH_COUNT; ++i) s_dashScr[i] = makeDashScreen(i);
+    logMemCheckpoint("makeDashScreen x6");
     buildOverview();
+    logMemCheckpoint("buildOverview");
     buildMonitors();
+    logMemCheckpoint("buildMonitors");
     buildIncidents();
+    logMemCheckpoint("buildIncidents");
     buildOnCall();
+    logMemCheckpoint("buildOnCall");
     buildSlos();
+    logMemCheckpoint("buildSlos");
     buildBitsInvestigations();
+    logMemCheckpoint("buildBitsInvestigations");
     // Added last so they sit on top in z-order — see the comment in
     // makeDashScreen() for why that ordering matters here.
     for (int i = 0; i < DASH_COUNT; ++i) addNavArrows(s_dashScr[i], i);
+    logMemCheckpoint("addNavArrows x6");
     s_dashBuilt = true;
 
     // Created once, checks storage::getAutoRotateEnabled() every tick —
