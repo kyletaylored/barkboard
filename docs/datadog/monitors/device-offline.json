@@ -2,7 +2,7 @@
   "name": "BarkBoard device offline (no data)",
   "type": "metric alert",
   "query": "avg(last_10m):avg:barkboard.uptime{*} by {device} > -1",
-  "message": "BarkBoard device {{device.name}} has stopped reporting device-health metrics for 10+ minutes \u2014 likely offline, crashed, or WiFi-disconnected. Query is trivially true whenever any data exists; this only fires via no-data detection. @pagerduty",
+  "message": "BarkBoard device {{device.name}} has stopped reporting device-health metrics for 10+ minutes \u2014 likely offline, crashed, or WiFi-disconnected. Query is trivially true whenever any data exists; this only fires via no-data detection.",
   "tags": [
     "service:barkboard"
   ],
