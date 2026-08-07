@@ -1405,7 +1405,7 @@ static bool resetReasonIsAbnormal(esp_reset_reason_t r) {
            r == ESP_RST_WDT   || r == ESP_RST_BROWNOUT;
 }
 
-bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err) {
+bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float netBusyPct, String& err) {
     if (WiFi.status() != WL_CONNECTED) { err = "no WiFi"; return false; }
 
     // Same NTP-readiness guard used elsewhere in this file for anything
@@ -1460,18 +1460,38 @@ bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err) {
     // xTaskGetCurrentTaskHandle() since this function always runs on it;
     // loopTaskHandle is passed in because it was captured once in setup()
     // (core 1) — a task can't look up another task's handle by name.
-    struct TaskStack { const char* name; TaskHandle_t handle; };
+    //
+    // busy_pct alongside it is NOT real CPU utilization — confirmed by
+    // reading this project's pinned framework's prebuilt sdkconfig that
+    // configGENERATE_RUN_TIME_STATS/configUSE_TRACE_FACILITY are both off,
+    // so the FreeRTOS APIs that report real per-task CPU% aren't available
+    // at all (see this file's header doc comment on submitDeviceMetrics()).
+    // Instead main.cpp's loop()/netTask() each time how much of their own
+    // cycle is spent working versus asleep in delay(5)/vTaskDelay(5), and
+    // pass the running average in here — a coarse but honest "is this
+    // task's own work starting to crowd out its sleep" signal, cheap
+    // enough (a couple of millis() reads per iteration) to leave on
+    // unconditionally rather than gating behind anything extra.
+    // loopBusyPct/netBusyPct are -1 when no full cycle has completed yet
+    // since the last report (e.g. right after boot) — skipped rather than
+    // sending a meaningless value.
+    struct TaskStack { const char* name; TaskHandle_t handle; float busyPct; };
     TaskStack stacks[] = {
-        { "loop",   loopTaskHandle },
-        { "dd-net", xTaskGetCurrentTaskHandle() },
+        { "loop",   loopTaskHandle,             loopBusyPct },
+        { "dd-net", xTaskGetCurrentTaskHandle(), netBusyPct },
     };
     for (size_t i = 0; i < sizeof(stacks) / sizeof(stacks[0]); ++i) {
-        if (!stacks[i].handle) continue;
-        uint32_t freeWords = uxTaskGetStackHighWaterMark(stacks[i].handle);
-        body += ",{\"metric\":\"barkboard.task.stack_free\",\"type\":3,\"points\":[{\"timestamp\":" +
-                String(ts) + ",\"value\":" + String((double)freeWords, 2) +
-                "}],\"tags\":[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
-                "\",\"task:" + String(stacks[i].name) + "\"]}";
+        String taskTags = "[\"service:barkboard\",\"device:" + netcfg::apSsid() + "\",\"firmware_version:" + String(BARKBOARD_VERSION) +
+                           "\",\"task:" + String(stacks[i].name) + "\"]";
+        if (stacks[i].handle) {
+            uint32_t freeWords = uxTaskGetStackHighWaterMark(stacks[i].handle);
+            body += ",{\"metric\":\"barkboard.task.stack_free\",\"type\":3,\"points\":[{\"timestamp\":" +
+                    String(ts) + ",\"value\":" + String((double)freeWords, 2) + "}],\"tags\":" + taskTags + "}";
+        }
+        if (stacks[i].busyPct >= 0) {
+            body += ",{\"metric\":\"barkboard.task.busy_pct\",\"type\":3,\"points\":[{\"timestamp\":" +
+                    String(ts) + ",\"value\":" + String((double)stacks[i].busyPct, 2) + "}],\"tags\":" + taskTags + "}";
+        }
     }
     body += "]}";
 

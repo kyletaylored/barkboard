@@ -262,6 +262,27 @@ static volatile bool g_chirpPending = false;
 // datadog.h). A plain FreeRTOS handle, safe to read cross-core.
 static TaskHandle_t g_loopTaskHandle = nullptr;
 
+// loop()'s (core 1) coarse "busy vs. asleep in delay(5)" running average —
+// see dd::submitDeviceMetrics()'s doc comment in datadog.h for exactly what
+// this is and isn't. Written every loop() iteration, read + reset once per
+// metrics submission by netTask() (core 0) via getLoopBusyPctAndReset() —
+// a real cross-core access, hence the mutex (netTask()'s own busy% doesn't
+// need one; it's tracked as plain locals inside netTask() itself, read on
+// the same task/core that writes it).
+static portMUX_TYPE g_busyMux = portMUX_INITIALIZER_UNLOCKED;
+static float        g_loopBusyAccum = 0;
+static uint32_t     g_loopBusyCount = 0;
+
+static bool getLoopBusyPctAndReset(float& outPct) {
+    portENTER_CRITICAL(&g_busyMux);
+    bool has = g_loopBusyCount > 0;
+    if (has) outPct = g_loopBusyAccum / g_loopBusyCount;
+    g_loopBusyAccum = 0;
+    g_loopBusyCount = 0;
+    portEXIT_CRITICAL(&g_busyMux);
+    return has;
+}
+
 // g_netJob has room for exactly one outstanding signal — if two of
 // netTask()'s three jobs (ambient poll / Monitor Detail / On-Call) finish
 // within the same core-0 pass before core 1's loop() drains between them,
@@ -308,7 +329,28 @@ static void netTask(void*) {
     uint32_t lastMetricsMs = 0;
     bool bootReportDone = false;
 
+    // netTask()'s own busy-vs-asleep tracking — see g_loopBusyAccum's doc
+    // comment above for what this is. No mutex needed here: written and
+    // read entirely within this one task/core (unlike loop()'s, which
+    // netTask() reads cross-core), so these are plain locals.
+    uint32_t lastNetIterStart = 0;
+    uint32_t lastNetWorkMs = 0;
+    float    netBusyAccum = 0;
+    uint32_t netBusyCount = 0;
+
     for (;;) {
+        uint32_t netIterStart = millis();
+        if (lastNetIterStart) {
+            uint32_t period = netIterStart - lastNetIterStart;
+            if (period > 0) {
+                float busyPct = (float)lastNetWorkMs / period * 100.0f;
+                if (busyPct > 100) busyPct = 100;
+                netBusyAccum += busyPct;
+                netBusyCount++;
+            }
+        }
+        lastNetIterStart = netIterStart;
+
         if (netcfg::isConnected() && isConfiguredThrottled()) {
             // One-shot per boot: reports the previous boot's reset reason
             // as a Datadog Event, but only when it was abnormal (panic/
@@ -362,8 +404,13 @@ static void netTask(void*) {
             if (storage::getMetricsEnabled() &&
                 (!lastMetricsMs || (millis() - lastMetricsMs) > (uint32_t)METRICS_INTERVAL_SEC * 1000UL)) {
                 lastMetricsMs = millis();
+                float loopBusyPct = -1, thisNetBusyPct = -1;
+                getLoopBusyPctAndReset(loopBusyPct);
+                if (netBusyCount > 0) thisNetBusyPct = netBusyAccum / netBusyCount;
+                netBusyAccum = 0;
+                netBusyCount = 0;
                 String merr;
-                dd::submitDeviceMetrics(g_loopTaskHandle, merr);
+                dd::submitDeviceMetrics(g_loopTaskHandle, loopBusyPct, thisNetBusyPct, merr);
             }
 
             long monitorId;
@@ -421,6 +468,7 @@ static void netTask(void*) {
                 netJobDone(NetJobType::FetchBitsInvestigations, true);
             }
         }
+        lastNetWorkMs = millis() - netIterStart;
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
@@ -516,6 +564,27 @@ static void logLvglMemTrend() {
 }
 
 void loop() {
+    // Busy-vs-asleep tracking (see g_loopBusyAccum's doc comment) — must be
+    // the very first thing measured, before anything else this iteration
+    // does. lastLoopWorkMs/lastLoopIterStart are function-scoped statics
+    // (not block-scoped) since they're written here at the top but also
+    // need writing again at the bottom, right before delay(5).
+    static uint32_t lastLoopIterStart = 0;
+    static uint32_t lastLoopWorkMs = 0;
+    uint32_t loopIterStart = millis();
+    if (lastLoopIterStart) {
+        uint32_t period = loopIterStart - lastLoopIterStart;
+        if (period > 0) {
+            float busyPct = (float)lastLoopWorkMs / period * 100.0f;
+            if (busyPct > 100) busyPct = 100;
+            portENTER_CRITICAL(&g_busyMux);
+            g_loopBusyAccum += busyPct;
+            g_loopBusyCount++;
+            portEXIT_CRITICAL(&g_busyMux);
+        }
+    }
+    lastLoopIterStart = loopIterStart;
+
     logLvglMemTrend();
     netcfg::process();
 
@@ -872,5 +941,6 @@ void loop() {
         ui::setStatusOnline(false);
     }
 
+    lastLoopWorkMs = millis() - loopIterStart;
     delay(5);
 }

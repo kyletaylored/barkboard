@@ -423,8 +423,8 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
 // xTaskGetCurrentTaskHandle() itself to get dd-net's own handle, since it
 // always runs on that task.
 //
-// Per-task CPU% (what sysmon and ESP32-Task-Manager report) is NOT included
-// — confirmed against this project's pinned framework
+// Real per-task CPU% (what sysmon and ESP32-Task-Manager report) is NOT
+// available — confirmed against this project's pinned framework
 // (framework-arduinoespressif32@3.20016.0)'s prebuilt esp32 sdkconfig that
 // CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS and CONFIG_FREERTOS_USE_TRACE_FACILITY
 // are both off, so vTaskGetRunTimeStats()/uxTaskGetSystemState() aren't
@@ -433,7 +433,19 @@ bool fetchBitsInvestigationDetail(const String& investigationId, BitsInvestigati
 // recompiles from source with different config. PSRAM stats are also
 // skipped — this specific board has none (see platformio.ini's
 // BOARD_HAS_PSRAM=0 build flag).
-bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, String& err);
+//
+// loopBusyPct/netBusyPct are a coarse, honest stand-in instead: each of
+// main.cpp's two tasks times how much of its own loop cycle is spent
+// working versus asleep in delay(5)/vTaskDelay(5), and passes the running
+// average since the last report here — sent as barkboard.task.busy_pct,
+// tagged task:loop/task:dd-net alongside stack_free above. This is NOT
+// true CPU utilization (no ISR time, no WiFi driver internals, nothing
+// outside these two tasks' own accounting), just "is this task's own work
+// starting to crowd out its sleep" — but it's cheap enough (a couple of
+// millis() reads per iteration, no new tasks) to always compute. Pass -1
+// for either when no full cycle has completed yet since the last report
+// (e.g. right after boot) — skipped rather than sending a meaningless value.
+bool submitDeviceMetrics(TaskHandle_t loopTaskHandle, float loopBusyPct, float netBusyPct, String& err);
 
 // One-shot per boot (call once from netTask() after the first successful
 // connection, guarded by a local "already ran" bool — same pattern as this

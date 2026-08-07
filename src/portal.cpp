@@ -344,7 +344,7 @@ static void sendStatus(const String& banner, bool err=false) {
     html += String("<option value=\"off\"") + (!metricsOn ? " selected" : "") + ">Off</option>";
     html += String("<option value=\"on\"")  + (metricsOn  ? " selected" : "") + ">On — send to this Datadog org</option>";
     html += "</select>";
-    html += "<div class=\"bb-note\">Sends device-health gauges (heap, task stack headroom, WiFi signal, uptime) back "
+    html += "<div class=\"bb-note\">Sends device-health gauges (heap, task stack headroom, task busy %, WiFi signal, uptime) back "
             "to your own Datadog org every " + String(METRICS_INTERVAL_SEC) + "s, tagged <code>device:" +
             htmlEscape(netcfg::apSsid()) + "</code> — because what's a Datadog dashboard without also monitoring "
             "itself? Custom metrics are billable Datadog usage, so this stays off unless you turn it on.</div>";
