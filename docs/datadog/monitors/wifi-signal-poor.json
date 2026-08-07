@@ -1,0 +1,18 @@
+{
+  "name": "BarkBoard WiFi signal poor",
+  "type": "metric alert",
+  "query": "avg(last_10m):avg:barkboard.wifi.rssi{*} by {device} < -80",
+  "message": "BarkBoard device {{device.name}} WiFi RSSI is {{value}} dBm \u2014 matches the dashboard's own Poor(-80)/Fair(-70) markers. Persistently poor signal risks the same HTTPClient buffer/TLS failures this project has chased before.",
+  "tags": [
+    "service:barkboard"
+  ],
+  "options": {
+    "thresholds": {
+      "critical": -80.0,
+      "warning": -70.0
+    },
+    "notify_no_data": false,
+    "renotify_interval": 0
+  },
+  "priority": null
+}

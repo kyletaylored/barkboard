@@ -1,0 +1,18 @@
+{
+  "name": "BarkBoard task stack headroom low",
+  "type": "metric alert",
+  "query": "avg(last_5m):avg:barkboard.task.stack_free{*} by {device,task} < 512",
+  "message": "BarkBoard device {{device.name}}, task {{task.name}}, has less than {{threshold}} bytes of stack headroom left \u2014 approaching a stack overflow. Warning at 1024 bytes, critical at 512.",
+  "tags": [
+    "service:barkboard"
+  ],
+  "options": {
+    "thresholds": {
+      "critical": 512.0,
+      "warning": 1024.0
+    },
+    "notify_no_data": false,
+    "renotify_interval": 0
+  },
+  "priority": null
+}

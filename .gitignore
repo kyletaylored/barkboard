@@ -25,11 +25,6 @@ sim/vendor/
 # needed) — this two-line exception un-ignores just that subtree without
 # also un-ignoring the root docs/*.bin this comment is about excluding.
 docs/manifest.json
-# Same "build output, not source" treatment — canonical source is
-# assets/source/barkboard-banner.png (what README.md displays), copied
-# here by pages.yml on every deploy since the OG/Twitter meta tags need
-# an absolute URL served from the Pages root.
-docs/barkboard-banner.png
 !docs/versions/**/*.bin
 tools/fonts/*.ttf
 

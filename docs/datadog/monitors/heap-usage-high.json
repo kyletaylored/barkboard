@@ -1,0 +1,18 @@
+{
+  "name": "BarkBoard heap usage high",
+  "type": "metric alert",
+  "query": "avg(last_5m):avg:barkboard.heap.used_pct{*} by {device} > 90",
+  "message": "BarkBoard device {{device.name}} heap usage is at {{value}}% \u2014 matches the dashboard's own Critical(90)/Warning(75) markers. Sustained high usage risks fragmentation-driven allocation failures (the exact class of crash this project has hit before on real hardware).",
+  "tags": [
+    "service:barkboard"
+  ],
+  "options": {
+    "thresholds": {
+      "critical": 90.0,
+      "warning": 75.0
+    },
+    "notify_no_data": false,
+    "renotify_interval": 0
+  },
+  "priority": null
+}

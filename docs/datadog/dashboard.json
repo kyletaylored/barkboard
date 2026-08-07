@@ -1,0 +1,516 @@
+{
+  "title": "Barkboard Device Monitoring",
+  "description": "Monitoring dashboard for Barkboard IoT devices \u2014 heap memory, system health, and connectivity.\n\ndatadog_demo_keep:true",
+  "widgets": [
+    {
+      "definition": {
+        "type": "image",
+        "url": "https://kyletaylored.com/barkboard/assets/barkboard-logo.png",
+        "sizing": "cover",
+        "margin": "sm",
+        "has_background": false,
+        "has_border": true,
+        "vertical_align": "center",
+        "horizontal_align": "center"
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "title": "Uptime",
+        "time": {},
+        "type": "query_value",
+        "requests": [
+          {
+            "aggregator": "last",
+            "formulas": [
+              {
+                "formula": "query1",
+                "number_format": {
+                  "unit": {
+                    "type": "canonical_unit",
+                    "unit_name": "second"
+                  }
+                }
+              }
+            ],
+            "queries": [
+              {
+                "aggregator": "last",
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:barkboard.uptime{$device,$firmware_version}"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 2
+      },
+      "layout": {
+        "x": 2,
+        "y": 0,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "title": "Heap Used %",
+        "type": "query_value",
+        "requests": [
+          {
+            "aggregator": "last",
+            "conditional_formats": [
+              {
+                "comparator": ">",
+                "palette": "white_on_red",
+                "value": 90
+              },
+              {
+                "comparator": ">",
+                "palette": "white_on_yellow",
+                "value": 75
+              },
+              {
+                "comparator": ">=",
+                "palette": "white_on_green",
+                "value": 0
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "query1",
+                "number_format": {
+                  "unit": {
+                    "type": "canonical_unit",
+                    "unit_name": "percent"
+                  }
+                }
+              }
+            ],
+            "queries": [
+              {
+                "aggregator": "last",
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:barkboard.heap.used_pct{$device,$firmware_version}"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 1
+      },
+      "layout": {
+        "x": 4,
+        "y": 0,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "title": "WiFi RSSI (dBm)",
+        "type": "query_value",
+        "requests": [
+          {
+            "aggregator": "last",
+            "conditional_formats": [
+              {
+                "comparator": "<",
+                "palette": "white_on_red",
+                "value": -80
+              },
+              {
+                "comparator": "<",
+                "palette": "white_on_yellow",
+                "value": -70
+              },
+              {
+                "comparator": ">=",
+                "palette": "white_on_green",
+                "value": -70
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "aggregator": "last",
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:barkboard.wifi.rssi{$device,$firmware_version}"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": false,
+        "precision": 0
+      },
+      "layout": {
+        "x": 8,
+        "y": 0,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "title": "Heap Memory",
+        "background_color": "blue",
+        "show_title": true,
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Heap Size vs Free vs Min Free",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "alias": "Total Size",
+                      "formula": "query1"
+                    },
+                    {
+                      "alias": "Free",
+                      "formula": "query2"
+                    },
+                    {
+                      "alias": "Min Free (Watermark)",
+                      "formula": "query3"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.heap.size{$device,$firmware_version}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "query2",
+                      "query": "avg:barkboard.heap.free{$device,$firmware_version}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "query3",
+                      "query": "avg:barkboard.heap.min_free{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 3
+            }
+          },
+          {
+            "definition": {
+              "title": "Heap Max Allocatable Block",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.heap.max_alloc{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 6,
+              "y": 0,
+              "width": 6,
+              "height": 3
+            }
+          },
+          {
+            "definition": {
+              "title": "Heap Used %",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.heap.used_pct{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Critical",
+                  "value": "y = 90",
+                  "display_type": "error dashed"
+                },
+                {
+                  "label": "Warning",
+                  "value": "y = 75",
+                  "display_type": "warning dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 3,
+              "width": 12,
+              "height": 3
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 2,
+        "width": 12,
+        "height": 7
+      }
+    },
+    {
+      "definition": {
+        "title": "System and Connectivity",
+        "background_color": "green",
+        "show_title": true,
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Device Uptime",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.uptime{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 4,
+              "height": 3
+            }
+          },
+          {
+            "definition": {
+              "title": "Task Stack Free",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.task.stack_free{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 4,
+              "y": 0,
+              "width": 4,
+              "height": 3
+            }
+          },
+          {
+            "definition": {
+              "title": "WiFi RSSI",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.wifi.rssi{$device,$firmware_version}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Poor Signal",
+                  "value": "y = -80",
+                  "display_type": "error dashed"
+                },
+                {
+                  "label": "Fair Signal",
+                  "value": "y = -70",
+                  "display_type": "warning dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 8,
+              "y": 0,
+              "width": 4,
+              "height": 3
+            }
+          },
+          {
+            "definition": {
+              "title": "Task Busy %",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.task.busy_pct{$device,$firmware_version} by {task}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 3,
+              "width": 12,
+              "height": 3
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 9,
+        "width": 12,
+        "height": 7
+      }
+    },
+    {
+      "definition": {
+        "title": "Device Events",
+        "background_color": "orange",
+        "show_title": true,
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Abnormal Reboots (panic / watchdog / brownout)",
+              "type": "event_stream",
+              "query": "tags:service:barkboard",
+              "event_size": "l",
+              "tags_execution": "and"
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 4
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 16,
+        "width": 12,
+        "height": 5
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "device",
+      "prefix": "device",
+      "available_values": [],
+      "default": "*"
+    },
+    {
+      "name": "firmware_version",
+      "prefix": "firmware_version",
+      "available_values": [],
+      "default": "*"
+    }
+  ],
+  "layout_type": "ordered",
+  "notify_list": [],
+  "reflow_type": "fixed",
+  "tags": [
+    "team:ese-tola"
+  ]
+}

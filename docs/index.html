@@ -14,14 +14,14 @@
   <meta property="og:title" content="BarkBoard">
   <meta property="og:description"
     content="A Datadog companion showing live monitors, incidents, on-call, and SLOs right on your desk.">
-  <meta property="og:image" content="https://kyletaylored.com/barkboard/barkboard-banner.png">
+  <meta property="og:image" content="https://kyletaylored.com/barkboard/assets/barkboard-banner.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="BarkBoard">
   <meta name="twitter:description"
     content="A Datadog companion showing live monitors, incidents, on-call, and SLOs right on your desk.">
-  <meta name="twitter:image" content="https://kyletaylored.com/barkboard/barkboard-banner.png">
+  <meta name="twitter:image" content="https://kyletaylored.com/barkboard/assets/barkboard-banner.png">
 
   <!-- JSON-LD, not just the <meta name="author"> tag above — this is what
        search engines actually parse for rich-result authorship today. -->
@@ -39,7 +39,7 @@
       "url": "https://github.com/kyletaylored"
     },
     "url": "https://kyletaylored.com/barkboard/",
-    "image": "https://kyletaylored.com/barkboard/barkboard-banner.png"
+    "image": "https://kyletaylored.com/barkboard/assets/barkboard-banner.png"
   }
   </script>
 
@@ -584,6 +584,55 @@
       color: var(--ink-dim)
     }
 
+    .bb-dd-head {
+      padding: 22px 22px 4px;
+    }
+
+    .bb-dd-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink-strong);
+      margin: 0 0 6px;
+    }
+
+    .bb-dd-desc {
+      font-size: 13px;
+      color: var(--ink-muted);
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .bb-dd-list {
+      display: grid;
+      gap: 1px;
+      background: var(--border);
+      margin: 16px 20px 20px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .bb-dd-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      background: var(--bg);
+      padding: 13px 16px;
+    }
+
+    .bb-dd-item-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .bb-dd-item-desc {
+      font-size: 12px;
+      color: var(--ink-dim);
+      margin-top: 2px;
+    }
+
     .bb-unsupported {
       margin: 0 20px 18px;
       padding: 12px 14px;
@@ -835,6 +884,61 @@
         </div>
         <div class="bb-footnote">Requires desktop Chrome or Edge — WebSerial isn't available on Firefox, Safari, or
           mobile browsers.</div>
+      </div>
+
+      <div class="bb-card">
+        <div class="bb-dd-head">
+          <div class="bb-dd-title">Monitor your own BarkBoard in Datadog</div>
+          <p class="bb-dd-desc">If you turn on device metrics/events in Settings (off by default — see the README),
+            BarkBoard reports its own health back to your org as <code>barkboard.*</code> metrics and Events.
+            Download the same dashboard and monitors used to build this project and import them into your own
+            org — Dashboards → New Dashboard → <i>Import dashboard JSON</i>, and Monitors → New Monitor →
+            <i>Import Monitor Definition</i>, respectively.</p>
+        </div>
+        <div class="bb-dd-list">
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Device Monitoring dashboard</div>
+              <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Device offline (no data)</div>
+              <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Heap usage high</div>
+              <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Task stack headroom low</div>
+              <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512 — approaching overflow</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">WiFi signal poor</div>
+              <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json" download>Download</a>
+          </div>
+          <div class="bb-dd-item">
+            <div>
+              <div class="bb-dd-item-name">Abnormal reboot detected</div>
+              <div class="bb-dd-item-desc">Fires on any panic/watchdog/brownout reboot Event</div>
+            </div>
+            <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json" download>Download</a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
