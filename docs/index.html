@@ -598,14 +598,39 @@
       display: none;
     }
 
-    .bb-dd-chevron {
-      color: var(--ink-muted);
-      font-size: 12px;
-      transition: transform .15s ease;
+    .bb-dd-title-group {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
     }
 
-    details[open]>.bb-dd-summary .bb-dd-chevron {
-      transform: rotate(90deg);
+    .bb-dd-subtitle {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--ink-muted);
+    }
+
+    .bb-dd-toggle {
+      flex: 0 0 auto;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--ink-muted);
+    }
+
+    .bb-dd-toggle-open {
+      display: none;
+    }
+
+    details[open]>.bb-dd-summary .bb-dd-toggle-closed {
+      display: none;
+    }
+
+    details[open]>.bb-dd-summary .bb-dd-toggle-open {
+      display: inline;
     }
 
     .bb-dd-body {
@@ -911,8 +936,14 @@
 
       <details class="bb-card">
         <summary class="bb-dd-summary">
-          <span class="bb-dd-title">Monitor your BarkBoard in Datadog</span>
-          <span class="bb-dd-chevron">&#9656;</span>
+          <span class="bb-dd-title-group">
+            <span class="bb-dd-title">Monitor BarkBoard</span>
+            <span class="bb-dd-subtitle">Dashboard &amp; Monitor Templates</span>
+          </span>
+          <span class="bb-dd-toggle">
+            <span class="bb-dd-toggle-closed">Open</span>
+            <span class="bb-dd-toggle-open">Close</span>
+          </span>
         </summary>
         <div class="bb-dd-body">
           <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
