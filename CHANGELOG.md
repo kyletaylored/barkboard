@@ -4,8 +4,6 @@
 
 First release.
 
-- Revert "Release v1.0.0-rc1: publish versioned flasher artifacts + changelog" (d062e11)
-- Release v1.0.0-rc1: publish versioned flasher artifacts + changelog (dcad996)
 - On-Call hero card: fix name/icon vertical misalignment, add email as secondary line (678b946)
 - Cap incidents fetch at 5 items — confirmed live the buffer overflow is back (9346e5a)
 - Fix og:url/image and JSON-LD to use the actual custom domain (d590918)
