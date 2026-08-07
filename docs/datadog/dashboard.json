@@ -576,7 +576,7 @@
         "widgets": [
           {
             "definition": {
-              "title": "Abnormal Reboots (panic / watchdog / brownout)",
+              "title": "Barkboard Events",
               "time": {},
               "requests": [
                 {
