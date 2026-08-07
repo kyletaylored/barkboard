@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.1.0
+
+Changes since v1.0.0:
+
+- Update spacing (e8af7ce)
+- Replace the collapse arrow with an explicit Open/Close pill, retitle (5abba4a)
+- Make the Datadog section collapsible (closed by default), trim copy (9f43516)
+- Fire a boot Event on every boot, not just abnormal ones (3dae3ce)
+- Add API Calls by Endpoint widget for barkboard.api.calls (0307ff1)
+- Update layout (93f7e0e)
+- Fix widget name (b8f5cce)
+- Update dashboard (ddf74e8)
+- Have the device push its own metric metadata once per firmware version (5e08628)
+- Push short_name/unit/description metadata for every barkboard.* metric (387c588)
+- Extend memory checkpoints to after each list actually gets live data (3adc60e)
+- Track API calls by endpoint as a new barkboard.api.calls metric (5c9d062)
+- Fix on-call hero card: zero card padding so icon/name/email re-align (e356299)
+- Add per-screen LVGL memory checkpoints to answer "where does it go" (5ccf302)
+- Remove placeholder @pagerduty mention from device-offline monitor message (9ea9591)
+- Add an Events widget + 5 monitors to the Datadog dashboard; publish them for download (485a708)
+- add assets (ac631f6)
+- Add a busy% proxy metric since real per-task CPU% isn't available (15865d2)
+- Flasher: default to the latest release, rename main to Nightly, cap list to 3 (4ea4812)
+- Fix pages.yml's manifest.json regression; make release.yml idempotent (2de528d)
+- Drop the rc1 create/revert commits from v1.0.0's changelog (a7a078b)
+- Release v1.0.0: publish versioned flasher artifacts + changelog (47fa3ad)
+- Release v1.0.0: publish versioned flasher artifacts + changelog (65381c3)
+
 ## v1.0.0
 
 First release.
