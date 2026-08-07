@@ -1,6 +1,6 @@
 {
   "title": "Barkboard Device Monitoring",
-  "description": "Monitoring dashboard for Barkboard IoT devices \u2014 heap memory, system health, and connectivity.\n\ndatadog_demo_keep:true",
+  "description": "Monitoring dashboard for Barkboard IoT devices — heap memory, system health, and connectivity.",
   "widgets": [
     {
       "definition": {
@@ -22,36 +22,46 @@
     },
     {
       "definition": {
-        "title": "Uptime",
-        "time": {},
+        "title": "Time Since Last Reboot",
         "type": "query_value",
         "requests": [
           {
             "aggregator": "last",
-            "formulas": [
-              {
-                "formula": "query1",
-                "number_format": {
-                  "unit": {
-                    "type": "canonical_unit",
-                    "unit_name": "second"
-                  }
-                }
-              }
-            ],
             "queries": [
               {
-                "aggregator": "last",
                 "data_source": "metrics",
                 "name": "query1",
-                "query": "avg:barkboard.uptime{$device,$firmware_version}"
+                "query": "avg:barkboard.uptime{$device,$firmware_version}",
+                "aggregator": "last"
               }
             ],
-            "response_format": "scalar"
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "response_format": "scalar",
+            "conditional_formats": [
+              {
+                "comparator": "<=",
+                "value": 300,
+                "palette": "white_on_red"
+              },
+              {
+                "comparator": "<=",
+                "value": 3600,
+                "palette": "white_on_yellow"
+              },
+              {
+                "comparator": ">",
+                "value": 3600,
+                "palette": "white_on_green"
+              }
+            ]
           }
         ],
         "autoscale": true,
-        "precision": 2
+        "precision": 0
       },
       "layout": {
         "x": 2,
@@ -67,43 +77,37 @@
         "requests": [
           {
             "aggregator": "last",
-            "conditional_formats": [
+            "queries": [
               {
-                "comparator": ">",
-                "palette": "white_on_red",
-                "value": 90
-              },
-              {
-                "comparator": ">",
-                "palette": "white_on_yellow",
-                "value": 75
-              },
-              {
-                "comparator": ">=",
-                "palette": "white_on_green",
-                "value": 0
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:barkboard.heap.used_pct{$device,$firmware_version}",
+                "aggregator": "last"
               }
             ],
             "formulas": [
               {
-                "formula": "query1",
-                "number_format": {
-                  "unit": {
-                    "type": "canonical_unit",
-                    "unit_name": "percent"
-                  }
-                }
+                "formula": "query1"
               }
             ],
-            "queries": [
+            "response_format": "scalar",
+            "conditional_formats": [
               {
-                "aggregator": "last",
-                "data_source": "metrics",
-                "name": "query1",
-                "query": "avg:barkboard.heap.used_pct{$device,$firmware_version}"
+                "comparator": ">",
+                "value": 90,
+                "palette": "white_on_red"
+              },
+              {
+                "comparator": ">",
+                "value": 75,
+                "palette": "white_on_yellow"
+              },
+              {
+                "comparator": ">=",
+                "value": 0,
+                "palette": "white_on_green"
               }
-            ],
-            "response_format": "scalar"
+            ]
           }
         ],
         "autoscale": true,
@@ -297,6 +301,63 @@
               "width": 12,
               "height": 3
             }
+          },
+          {
+            "definition": {
+              "title": "Heap Fragmentation %",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.heap.free{$device,$firmware_version}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "query2",
+                      "query": "avg:barkboard.heap.max_alloc{$device,$firmware_version}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "(query1 - query2) / query1 * 100",
+                      "alias": "Fragmentation %"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": {
+                    "palette": "orange"
+                  },
+                  "display_type": "area"
+                }
+              ],
+              "yaxis": {
+                "scale": "linear",
+                "min": "0",
+                "max": "100"
+              },
+              "markers": [
+                {
+                  "label": "High Fragmentation",
+                  "value": "y = 50",
+                  "display_type": "error dashed"
+                },
+                {
+                  "label": "Moderate",
+                  "value": "y = 25",
+                  "display_type": "warning dashed"
+                }
+              ]
+            },
+            "layout": {
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 3
+            }
           }
         ]
       },
@@ -304,7 +365,7 @@
         "x": 0,
         "y": 2,
         "width": 12,
-        "height": 7
+        "height": 10
       }
     },
     {
@@ -317,27 +378,45 @@
         "widgets": [
           {
             "definition": {
-              "title": "Device Uptime",
+              "title": "Device Online Status",
               "show_legend": true,
+              "legend_layout": "auto",
+              "legend_columns": [
+                "avg",
+                "min",
+                "max",
+                "value",
+                "sum"
+              ],
               "type": "timeseries",
               "requests": [
                 {
                   "formulas": [
                     {
-                      "formula": "query1"
+                      "formula": "query1 / query1",
+                      "alias": "Online"
                     }
                   ],
                   "queries": [
                     {
                       "data_source": "metrics",
                       "name": "query1",
-                      "query": "avg:barkboard.uptime{$device,$firmware_version}"
+                      "query": "avg:barkboard.uptime{$device,$firmware_version} by {device}"
                     }
                   ],
                   "response_format": "timeseries",
-                  "display_type": "line"
+                  "style": {
+                    "palette": "green",
+                    "line_type": "solid",
+                    "line_width": "normal"
+                  },
+                  "display_type": "area"
                 }
-              ]
+              ],
+              "yaxis": {
+                "min": "0",
+                "max": "1.5"
+              }
             },
             "layout": {
               "x": 0,
@@ -350,6 +429,15 @@
             "definition": {
               "title": "Task Stack Free",
               "show_legend": true,
+              "legend_layout": "auto",
+              "legend_columns": [
+                "avg",
+                "min",
+                "max",
+                "value",
+                "sum"
+              ],
+              "time": {},
               "type": "timeseries",
               "requests": [
                 {
@@ -362,10 +450,15 @@
                     {
                       "data_source": "metrics",
                       "name": "query1",
-                      "query": "avg:barkboard.task.stack_free{$device,$firmware_version}"
+                      "query": "avg:barkboard.task.stack_free{$device,$firmware_version} by {task}"
                     }
                   ],
                   "response_format": "timeseries",
+                  "style": {
+                    "palette": "dog_classic",
+                    "line_type": "solid",
+                    "line_width": "normal"
+                  },
                   "display_type": "line"
                 }
               ]
@@ -427,11 +520,6 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "formulas": [
-                    {
-                      "formula": "query1"
-                    }
-                  ],
                   "queries": [
                     {
                       "data_source": "metrics",
@@ -439,8 +527,25 @@
                       "query": "avg:barkboard.task.busy_pct{$device,$firmware_version} by {task}"
                     }
                   ],
+                  "formulas": [
+                    {
+                      "formula": "query1"
+                    }
+                  ],
                   "response_format": "timeseries",
                   "display_type": "line"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Critical",
+                  "value": "y = 95",
+                  "display_type": "error dashed"
+                },
+                {
+                  "label": "Warning",
+                  "value": "y = 80",
+                  "display_type": "warning dashed"
                 }
               ]
             },
@@ -455,9 +560,10 @@
       },
       "layout": {
         "x": 0,
-        "y": 9,
+        "y": 12,
         "width": 12,
-        "height": 7
+        "height": 7,
+        "is_column_break": true
       }
     },
     {
@@ -471,15 +577,24 @@
           {
             "definition": {
               "title": "Abnormal Reboots (panic / watchdog / brownout)",
-              "type": "event_stream",
-              "query": "tags:service:barkboard",
-              "event_size": "l",
-              "tags_execution": "and"
+              "time": {},
+              "requests": [
+                {
+                  "query": {
+                    "query_string": "service:barkboard source:my_apps",
+                    "data_source": "event_stream",
+                    "event_size": "l"
+                  },
+                  "columns": [],
+                  "response_format": "event_list"
+                }
+              ],
+              "type": "list_stream"
             },
             "layout": {
               "x": 0,
               "y": 0,
-              "width": 12,
+              "width": 6,
               "height": 4
             }
           }
@@ -487,8 +602,106 @@
       },
       "layout": {
         "x": 0,
-        "y": 16,
-        "width": 12,
+        "y": 19,
+        "width": 6,
+        "height": 5
+      }
+    },
+    {
+      "definition": {
+        "title": "Fleet Inventory",
+        "background_color": "purple",
+        "show_title": true,
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Device Fleet Status",
+              "type": "query_table",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "query1",
+                      "query": "avg:barkboard.uptime{$device,$firmware_version} by {device}",
+                      "aggregator": "last"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "query2",
+                      "query": "avg:barkboard.wifi.rssi{$device,$firmware_version} by {device}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "sort": {
+                    "count": 25,
+                    "order_by": [
+                      {
+                        "type": "formula",
+                        "index": 0,
+                        "order": "desc"
+                      }
+                    ]
+                  },
+                  "formulas": [
+                    {
+                      "formula": "query1",
+                      "alias": "Uptime (s)",
+                      "conditional_formats": [
+                        {
+                          "comparator": ">",
+                          "value": 0,
+                          "palette": "white_on_green"
+                        },
+                        {
+                          "comparator": "<=",
+                          "value": 0,
+                          "palette": "white_on_red"
+                        }
+                      ]
+                    },
+                    {
+                      "formula": "query2",
+                      "alias": "WiFi RSSI (dBm)",
+                      "conditional_formats": [
+                        {
+                          "comparator": "<",
+                          "value": -80,
+                          "palette": "white_on_red"
+                        },
+                        {
+                          "comparator": "<",
+                          "value": -70,
+                          "palette": "white_on_yellow"
+                        },
+                        {
+                          "comparator": ">=",
+                          "value": -70,
+                          "palette": "white_on_green"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "has_search_bar": "auto"
+            },
+            "layout": {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 4
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 6,
+        "y": 19,
+        "width": 6,
         "height": 5
       }
     }
@@ -509,8 +722,7 @@
   ],
   "layout_type": "ordered",
   "notify_list": [],
+  "pause_auto_refresh": false,
   "reflow_type": "fixed",
-  "tags": [
-    "team:ese-tola"
-  ]
+  "tags": []
 }
