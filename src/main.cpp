@@ -480,6 +480,19 @@ static void netTask(void*) {
     }
 }
 
+// Shared by every factory-reset trigger — the boot-time touch gesture
+// below, the Settings screen's two-tap confirm, and the BOOT-button hold
+// gesture (see checkBootButtonReset()) — wipes WiFi + Datadog credentials,
+// drops the saved AP from NVS, and reboots back into fresh AP setup mode.
+static void performFactoryReset(const char* reason) {
+    Serial.printf("[reset] factory reset triggered (%s) — wiping creds\n", reason);
+    storage::clearAll();
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true, true);   // erase saved AP from NVS
+    delay(200);
+    ESP.restart();
+}
+
 void setup() {
     // Must happen first thing in setup(), which runs on Arduino's own
     // "loopTask" (core 1) — this is the one place that task's own handle is
@@ -499,6 +512,7 @@ void setup() {
     // no ledcSetup()/ledcAttachPin() needed up front.
     setSolidRGB(0, 0, 0);
     pinMode(SPEAKER_PIN, OUTPUT);
+    pinMode(BOOT_BTN_PIN, INPUT_PULLUP);
 
     storage::begin();
 
@@ -519,12 +533,7 @@ void setup() {
     // Factory-reset gesture: hold the touchscreen during boot for ~2s to wipe
     // WiFi creds and Datadog keys, then reboot back into AP setup mode.
     if (display::factoryResetPrompt(2000)) {
-        Serial.println("[boot] factory reset triggered — wiping creds");
-        storage::clearAll();
-        WiFi.mode(WIFI_STA);
-        WiFi.disconnect(true, true);   // erase saved AP from NVS
-        delay(200);
-        ESP.restart();
+        performFactoryReset("touch gesture at boot");
     }
 
     ui::begin();
@@ -560,6 +569,32 @@ void setup() {
 // every ~3s so the Serial log around the next freeze shows whether the pool
 // was trending toward exhaustion beforehand — see lv_conf.h's LV_USE_LOG
 // comment for why that's the leading theory.
+// Non-blocking counterpart to display::factoryResetPrompt()'s boot-time
+// touch-hold gesture, checked every loop() iteration instead of once at
+// boot — recovers a device whose touchscreen has gone unresponsive or
+// miscalibrated sometime *after* boot, not just at the boot instant. Safe
+// to read GPIO0 here regardless of its boot-strapping role; see
+// config.h's BOOT_BTN_PIN comment.
+static uint32_t s_bootBtnHoldStartMs = 0;
+static bool     s_bootBtnBusyShown = false;
+
+static void checkBootButtonReset() {
+    if (digitalRead(BOOT_BTN_PIN) == LOW) {
+        if (s_bootBtnHoldStartMs == 0) {
+            s_bootBtnHoldStartMs = millis();
+        } else if (millis() - s_bootBtnHoldStartMs >= BOOT_BTN_RESET_HOLD_MS) {
+            performFactoryReset("BOOT button hold");
+        } else if (!s_bootBtnBusyShown) {
+            s_bootBtnBusyShown = true;
+            ui::showBusy("Hold BOOT to factory reset...");
+        }
+    } else {
+        if (s_bootBtnBusyShown) ui::hideBusy();
+        s_bootBtnHoldStartMs = 0;
+        s_bootBtnBusyShown = false;
+    }
+}
+
 static void logLvglMemTrend() {
     static uint32_t lastMs = 0;
     if (millis() - lastMs < 3000) return;
@@ -593,6 +628,7 @@ void loop() {
     lastLoopIterStart = loopIterStart;
 
     logLvglMemTrend();
+    checkBootButtonReset();
     netcfg::process();
 
     // Drain UI updates queued by the WiFi task (core 0).
@@ -620,9 +656,10 @@ void loop() {
             if (!portalServerStarted) {
                 portal::begin();
                 portalServerStarted = true;
-                if (MDNS.begin("barkboard")) {
+                String mdnsHostname = ui::deviceHostname();
+                if (MDNS.begin(mdnsHostname.c_str())) {
                     MDNS.addService("http", "tcp", 80);
-                    Serial.println("[mdns] http://barkboard.local/");
+                    Serial.printf("[mdns] http://%s.local/\n", mdnsHostname.c_str());
                 } else {
                     Serial.println("[mdns] failed to start");
                 }
@@ -646,7 +683,7 @@ void loop() {
         bool onModalScreen = (now == ui::Screen::None || now == ui::Screen::Connecting ||
                               now == ui::Screen::Setup || now == ui::Screen::Waiting);
         if (onModalScreen && want == ui::Screen::Waiting && now != ui::Screen::Waiting) {
-            ui::showWaitingForKeys(String("http://barkboard.local\n") + WiFi.localIP().toString());
+            ui::showWaitingForKeys(String("http://") + ui::deviceHostname() + ".local\n" + WiFi.localIP().toString());
         } else if (onModalScreen && want == ui::Screen::Overview && now != ui::Screen::Overview) {
             ui::showOverview();
             ui::setStatusOnline(true);
@@ -807,12 +844,7 @@ void loop() {
             ui::applyRedetectResult(ok, site, verr);
         }
         if (ui::factoryResetPending()) {
-            Serial.println("[settings] factory reset confirmed — wiping creds");
-            storage::clearAll();
-            WiFi.mode(WIFI_STA);
-            WiFi.disconnect(true, true);
-            delay(200);
-            ESP.restart();
+            performFactoryReset("Settings confirm");
         }
 
         // Incident state advance (tap on Incident Detail) — default
@@ -935,7 +967,7 @@ void loop() {
                 ui::setStatusOnline(true);
             } else {
                 ui::showConnecting(String("Couldn't detect your Datadog site.\n") + verr +
-                                    "\nRe-enter keys at http://barkboard.local");
+                                    "\nRe-enter keys at http://" + ui::deviceHostname() + ".local");
             }
         }
 

@@ -78,6 +78,9 @@ struct WiFiShim {
     String SSID() const { return String("BarkBoard-Sim"); }
     IPAddressShim localIP() const { return IPAddressShim(); }
     int RSSI() const { return -47; }
+    // Feeds ui::deviceHostname()'s MAC-suffix slicing (see ui.cpp) — fake
+    // but fixed, same as the rest of this shim.
+    String macAddress() const { return String("AA:BB:CC:DD:EE:FF"); }
 };
 extern WiFiShim WiFi;
 

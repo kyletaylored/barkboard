@@ -41,6 +41,20 @@
 // chirps on real hardware.
 #define SPEAKER_PIN 26
 
+// Onboard BOOT button — the CYD's only other physical input besides the
+// touchscreen (there's also a RESET button, but that's a hard reset with no
+// GPIO of its own). Confirmed IO0 by _reference/ESP32-Cheap-Yellow-Display's
+// PINS.md ("Can be used as an input in sketches"). This is also the ESP32's
+// GPIO0 boot-strapping pin — held LOW at power-on/hardware-reset, it puts
+// the chip in the ROM's UART download mode instead of running this firmware
+// at all. That only matters if BOOT is already held *before* a cold
+// power-on or a press of the physical RESET button; reading it as a normal
+// button during firmware's own runtime loop() (this file's use) never
+// touches that path, since no reset event occurs while it's held. Wired to
+// a physical pull-up on this board, active LOW when pressed.
+#define BOOT_BTN_PIN 0
+#define BOOT_BTN_RESET_HOLD_MS 2000
+
 // Captive portal (WiFi join AP) — deliberately open (no password): this is a
 // one-time setup network with no sensitive traffic, and skipping the
 // password removes a step from the flow a phone has to complete just to

@@ -41,6 +41,30 @@ A window opens at 320x240 (the CYD panel's native resolution), zoomed 2x (640x48
 
 Quit with Ctrl+C in the terminal.
 
+## WebAssembly build (for the web flasher's "Live Demo")
+
+`Makefile.wasm` cross-compiles the exact same sources above with Emscripten
+instead of native clang/gcc, targeting a `<canvas>` via Emscripten's own
+SDL2 port (`-sUSE_SDL=2`) rather than a real window — no native SDL2
+install needed for this build. It's what backs the "Live Demo" section on
+the GitHub Pages flasher (`../docs/index.html`).
+
+```
+brew install emscripten   # or any emsdk install, as long as emcc is on PATH
+cd sim
+make -f Makefile.wasm -j
+```
+
+Outputs `../docs/sim/barkboard_sim.js` + `.wasm` directly (not `build_wasm/`,
+which is just intermediate object files). Those two files are gitignored —
+like the root `docs/*.bin`s, they're rebuilt fresh into `docs/sim/` by
+`.github/workflows/pages.yml` on every push, not committed.
+
+The one code difference from the native build: `main_sim.cpp`'s event loop
+is `#ifdef __EMSCRIPTEN__`-gated to use `emscripten_set_main_loop` instead
+of a blocking `while(1)` + `SDL_Delay` — blocking the browser's JS thread
+that way would freeze the tab, since this build has no pthreads.
+
 ## Known limitations (by design)
 
 - No real network, no real WiFi state, no real Datadog data — everything `dd::` returns is hardcoded in `datadog_sim.cpp`. Edit that file to change what monitors/incidents/SLOs show up.

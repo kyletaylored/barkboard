@@ -681,6 +681,30 @@
       margin-top: 2px;
     }
 
+    .bb-sim-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .bb-sim-canvas {
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 640 / 480;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      image-rendering: pixelated;
+      cursor: pointer;
+    }
+
+    .bb-sim-status {
+      font-size: 12px;
+      color: var(--ink-dim);
+    }
+
     .bb-unsupported {
       margin: 0 20px 18px;
       padding: 12px 14px;
@@ -935,6 +959,28 @@
         <div class="bb-footnote">Requires desktop Chrome or Edge — WebSerial isn't available on Firefox, Safari, or
           mobile browsers.</div>
       </div>
+
+      <details class="bb-card" id="demoDetails">
+        <summary class="bb-dd-summary">
+          <span class="bb-dd-title-group">
+            <span class="bb-dd-title">Live Demo</span>
+            <span class="bb-dd-subtitle">Runs the real dashboard UI in your browser, no board needed</span>
+          </span>
+          <span class="bb-dd-toggle">
+            <span class="bb-dd-toggle-closed">Open</span>
+            <span class="bb-dd-toggle-open">Close</span>
+          </span>
+        </summary>
+        <div class="bb-dd-body">
+          <p class="bb-dd-desc">The exact same LVGL screen code that runs on the physical CYD panel (<code>src/ui.cpp</code>),
+            compiled to WebAssembly and fed canned monitor/incident/SLO/on-call data instead of a live Datadog org.
+            Click and drag with the mouse the way you'd touch the panel.</p>
+          <div class="bb-sim-wrap">
+            <canvas id="canvas" class="bb-sim-canvas" width="640" height="480"></canvas>
+            <div class="bb-sim-status" id="simStatus">Click to load the demo (~1.3 MB)</div>
+          </div>
+        </div>
+      </details>
 
       <details class="bb-card">
         <summary class="bb-dd-summary">
@@ -1578,6 +1624,36 @@
     }
 
     updateFlashButtons();
+
+    // Live Demo: the WASM sim is ~1.3MB, so it's loaded on-demand the first
+    // time the <details> is opened rather than on every page visit.
+    (function () {
+      const demoDetails = document.getElementById('demoDetails');
+      const simStatus = document.getElementById('simStatus');
+      let loadStarted = false;
+
+      demoDetails.addEventListener('toggle', () => {
+        if (!demoDetails.open || loadStarted) return;
+        loadStarted = true;
+        simStatus.textContent = 'Loading demo…';
+
+        const script = document.createElement('script');
+        script.src = 'sim/barkboard_sim.js';
+        script.onload = () => {
+          window.createBarkBoardSim({
+            canvas: document.getElementById('canvas'),
+          }).then(() => {
+            simStatus.textContent = 'Running — click and drag with the mouse the way you\'d touch the panel.';
+          }).catch((err) => {
+            simStatus.textContent = 'Demo failed to start: ' + err;
+          });
+        };
+        script.onerror = () => {
+          simStatus.textContent = 'Demo failed to load.';
+        };
+        document.body.appendChild(script);
+      });
+    })();
   </script>
 </body>
 

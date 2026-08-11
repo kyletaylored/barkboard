@@ -19,6 +19,19 @@
 #define COLOR_ALERT  lv_color_hex(0xF0506E)
 #define COLOR_NODATA lv_color_hex(0x8A8894)
 
+String ui::deviceHostname() {
+    // WiFi.macAddress() is "AA:BB:CC:DD:EE:FF"; the last 2 bytes (chars
+    // 12-13 and 15-16) give 4 hex digits, e.g. "eeff" -> "barkboard-eeff".
+    // Computed fresh each call rather than cached/persisted — it only needs
+    // to be stable for the lifetime of one boot (the mDNS registration and
+    // every UI label reading it all happen after WiFi is already up), and
+    // the MAC itself doesn't change.
+    String mac = WiFi.macAddress();
+    String suffix = mac.substring(12, 14) + mac.substring(15, 17);
+    suffix.toLowerCase();
+    return "barkboard-" + suffix;
+}
+
 // Nav arrows now sit at the bottom, flanking the page dots (see
 // addNavArrows/addPageDots) instead of the screen's left/right edges — this
 // is just the standard outer margin now, not clearance for a 28px-wide
@@ -356,10 +369,17 @@ static lv_obj_t* s_settingsSite   = nullptr;
 static lv_obj_t* s_settingsChirp  = nullptr;
 static lv_obj_t* s_settingsReset  = nullptr;
 static lv_obj_t* s_settingsResult = nullptr;
+static lv_obj_t* s_settingsQr     = nullptr;
 static ui::Screen s_screenBeforeSettings = ui::Screen::Overview;
 // volatile — chirpMuted() is now read from the core-0 net task (main.cpp's
 // netTask(), for the new-alert chirp), not just core 1.
-static volatile bool s_chirpMuted = false;
+// Defaults muted — the piezo (SPEAKER_PIN, config.h) is an unverified pin
+// assignment (per config.h's own comment, corroborated only by community
+// pinout writeups, not an official datasheet) and not every CYD board even
+// has one wired/populated. Chirping by default on hardware that doesn't
+// expect it is a worse first-boot experience than a silent device the user
+// has to opt into sound for.
+static volatile bool s_chirpMuted = true;
 static int       s_resetConfirmArmed = 0;   // 0=idle, 1=armed (tap again to confirm)
 static volatile bool s_redetectSitePending = false;
 static volatile bool s_factoryResetPending = false;
@@ -1814,7 +1834,7 @@ void ui::notifyOnCallRefreshed(const std::vector<dd::OnCallEntry>& entries, bool
         lv_obj_t* empty = lv_label_create(s_ocList);
         lv_obj_set_style_text_font(empty, &outfit_thin_14, 0);
         lv_obj_set_style_text_color(empty, COLOR_MUTED, 0);
-        lv_label_set_text(empty, "Multiple teams found for your account.\nPick one at http://barkboard.local");
+        lv_label_set_text(empty, ("Multiple teams found for your account.\nPick one at http://" + deviceHostname() + ".local").c_str());
         return;
     }
     if (!hasTeams) {
@@ -2349,7 +2369,22 @@ static void buildSettingsIfNeeded() {
     s_settingsInfo = lv_label_create(s_settingsScr);
     lv_obj_set_style_text_font(s_settingsInfo, &outfit_thin_12, 0);
     lv_obj_set_style_text_color(s_settingsInfo, COLOR_MUTED, 0);
+    // Capped width + wrap (rather than the default LONG_EXPAND) so a long
+    // WiFi SSID/Datadog site name can't grow this label wide enough to run
+    // under the QR code below.
+    lv_obj_set_width(s_settingsInfo, 206);
+    lv_label_set_long_mode(s_settingsInfo, LV_LABEL_LONG_WRAP);
     lv_obj_set_pos(s_settingsInfo, 12, 46);
+
+    // QR linking to this device's own (now MAC-suffixed, collision-free —
+    // see deviceHostname()) setup page, so a second BarkBoard on the same
+    // desk/LAN can be told apart and reached without typing anything. No
+    // caption needed — the info label to its left already spells out
+    // "Setup: <hostname>.local" in text.
+    s_settingsQr = lv_qrcode_create(s_settingsScr, 80, lv_color_black(), lv_color_white());
+    lv_obj_set_pos(s_settingsQr, SCREEN_WIDTH - 80 - 14, 44);
+    lv_obj_set_style_border_color(s_settingsQr, lv_color_white(), 0);
+    lv_obj_set_style_border_width(s_settingsQr, 4, 0);
 
     s_settingsSite = lv_label_create(s_settingsScr);
     lv_obj_set_style_text_font(s_settingsSite, &outfit_thin_12, 0);
@@ -2358,8 +2393,14 @@ static void buildSettingsIfNeeded() {
     lv_label_set_long_mode(s_settingsSite, LV_LABEL_LONG_WRAP);
     lv_obj_set_pos(s_settingsSite, 12, 118);
 
+    // Re-detect + Chirp sit side by side (rather than stacked, as they used
+    // to) — stacked, their combined height ran into the bottom-pinned
+    // FACTORY RESET button below (both drawn at y=190-220ish vs. Reset's
+    // 196-226, a ~24px overlap that left CHIRP invisible underneath
+    // whichever button LVGL happened to draw on top). Side by side, both
+    // rows clear Reset with room to spare.
     lv_obj_t* redetectBtn = lv_btn_create(s_settingsScr);
-    lv_obj_set_size(redetectBtn, 150, 30);
+    lv_obj_set_size(redetectBtn, 144, 30);
     lv_obj_set_pos(redetectBtn, 12, 150);
     lv_obj_set_style_bg_color(redetectBtn, COLOR_PURPLE, 0);
     lv_obj_set_style_border_width(redetectBtn, 0, 0);
@@ -2372,8 +2413,8 @@ static void buildSettingsIfNeeded() {
     // Chirp mute — a plain toggling button rather than lv_switch, which is
     // disabled in lv_conf.h (LV_USE_SWITCH 0).
     s_settingsChirp = lv_btn_create(s_settingsScr);
-    lv_obj_set_size(s_settingsChirp, 150, 30);
-    lv_obj_set_pos(s_settingsChirp, 12, 190);
+    lv_obj_set_size(s_settingsChirp, 144, 30);
+    lv_obj_set_pos(s_settingsChirp, 164, 150);
     lv_obj_set_style_bg_color(s_settingsChirp, COLOR_SURFACE, 0);
     lv_obj_set_style_border_width(s_settingsChirp, 0, 0);
     lv_obj_add_event_cb(s_settingsChirp, [](lv_event_t*) {
@@ -2382,7 +2423,7 @@ static void buildSettingsIfNeeded() {
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t* chirpLbl = lv_label_create(s_settingsChirp);
     lv_obj_set_style_text_font(chirpLbl, &outfit_bold_14, 0);
-    lv_label_set_text(chirpLbl, "CHIRP: ON");
+    lv_label_set_text(chirpLbl, "CHIRP: MUTED");
     lv_obj_center(chirpLbl);
 
     s_settingsReset = lv_btn_create(s_settingsScr);
@@ -2416,15 +2457,19 @@ void ui::showSettings() {
     lv_label_set_text(lv_obj_get_child(s_settingsReset, 0), "FACTORY RESET");
     lv_label_set_text(s_settingsResult, "");
 
-    // barkboard.local resolves to the same address as the IP line above via
+    // <hostname>.local resolves to the same address as the IP line above via
     // mDNS (netcfg::begin() registers it) — worth surfacing directly since
     // it's what the README and setup flow actually tell people to type,
     // rather than making them come back here to read off a raw IP first.
+    // The hostname is MAC-suffixed (deviceHostname()) so it stays unique
+    // when more than one BarkBoard is on the same LAN — see ui.h's comment.
+    String hostUrl = "http://" + deviceHostname() + ".local";
     String info = "WiFi: " + WiFi.SSID() + "\nIP: " + WiFi.localIP().toString() +
-                  "\nSetup: barkboard.local" +
+                  "\nSetup: " + deviceHostname() + ".local" +
                   "\nRSSI: " + String(WiFi.RSSI()) + " dBm" +
                   "\nFree heap: " + String(ESP.getFreeHeap() / 1024) + " KB";
     lv_label_set_text(s_settingsInfo, info.c_str());
+    lv_qrcode_update(s_settingsQr, hostUrl.c_str(), hostUrl.length());
 
     String site = storage::getSite();
     lv_label_set_text(s_settingsSite, ("Datadog site: " + (site.length() ? site : String("(not detected)"))).c_str());

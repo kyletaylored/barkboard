@@ -20,6 +20,10 @@
 #include <ctime>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf1[SCREEN_WIDTH * SCREEN_HEIGHT];
 static lv_disp_drv_t disp_drv;
@@ -115,10 +119,21 @@ int main(int argc, char** argv) {
 
     printf("[sim] BarkBoard simulator running. Click/drag with the mouse the way you'd touch the panel. Ctrl+C to quit.\n");
 
+#ifdef __EMSCRIPTEN__
+    // The browser owns its own event loop — blocking here with a native
+    // while(1)/SDL_Delay would freeze the tab (no pthreads in this build).
+    // emscripten_set_main_loop hands each "tick" back to the browser between
+    // calls, the same role SDL_Delay(5) plays in the native build below.
+    emscripten_set_main_loop([]() {
+        lv_timer_handler();
+        tickClock();
+    }, 0, 1);
+#else
     while (1) {
         lv_timer_handler();
         tickClock();
         SDL_Delay(5);
     }
+#endif
     return 0;
 }

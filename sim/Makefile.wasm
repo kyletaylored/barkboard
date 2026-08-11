@@ -1,0 +1,101 @@
+# BarkBoard LVGL simulator — WebAssembly build, for the "Live Demo" section
+# of the web flasher (../docs/index.html). Same sources as Makefile (native
+# desktop sim), cross-compiled with Emscripten's emcc instead of clang/gcc so
+# SDL2 calls target a <canvas> via Emscripten's SDL2 port rather than a real
+# window. NOT part of the ESP32 firmware build or the native sim; see
+# sim/README.md for the native build and ../CLAUDE.md for the project's
+# overall "what's real vs fake" framing.
+#
+# Requires emcc/emconfigure on PATH (brew install emscripten, or emsdk).
+
+EMCC  := emcc
+EMXX  := em++
+
+ROOT        := ..
+SRC_DIR     := $(ROOT)/src
+SHIM_DIR    := arduino_shim
+LVGL_DIR    := vendor/lvgl
+LVDRV_DIR   := vendor/lv_drivers
+
+INCLUDES := \
+    -I. \
+    -I$(SHIM_DIR) \
+    -I$(SRC_DIR) \
+    -I$(LVGL_DIR) \
+    -I$(LVDRV_DIR)
+
+COMMON_DEFS := -DLV_CONF_INCLUDE_SIMPLE -DLV_LVGL_H_INCLUDE_SIMPLE
+
+# -sUSE_SDL=2 swaps in Emscripten's own SDL2 port (targets a <canvas>, no
+# native SDL2 install needed for this build), which is why this Makefile
+# doesn't call sdl2-config the way the native Makefile does. It must be
+# passed at both compile and link time (SDL headers vs. the actual port
+# library), unlike ALLOW_MEMORY_GROWTH/ASSERTIONS, which are link-only.
+EM_FLAGS      := -sUSE_SDL=2 -O2
+EM_LINK_FLAGS := -sALLOW_MEMORY_GROWTH=1 -sASSERTIONS=0
+
+# clock_gettime/CLOCK_MONOTONIC (arduino_shim/millis.c) are POSIX, not C11 —
+# glibc/musl gate them behind this feature-test macro in strict -std=c11 mode.
+CXXFLAGS := -std=c++17 -D_POSIX_C_SOURCE=199309L $(COMMON_DEFS) $(INCLUDES) $(EM_FLAGS)
+CFLAGS   := -std=c11   -D_POSIX_C_SOURCE=199309L $(COMMON_DEFS) $(INCLUDES) $(EM_FLAGS)
+
+BUILD_DIR := build_wasm
+
+CXX_SRCS := \
+    $(SRC_DIR)/ui.cpp \
+    datadog_sim.cpp \
+    storage_sim.cpp \
+    main_sim.cpp \
+    $(SHIM_DIR)/WString.cpp \
+    $(SHIM_DIR)/stdlib_noniso.cpp \
+    $(SHIM_DIR)/arduino_shim.cpp
+
+C_SRCS := \
+    $(SRC_DIR)/assets_gen.c \
+    $(wildcard $(SRC_DIR)/fonts/*.c) \
+    $(SHIM_DIR)/millis.c
+
+LVGL_C_SRCS  := $(shell find $(LVGL_DIR)/src -name '*.c')
+LVDRV_C_SRCS := $(LVDRV_DIR)/sdl/sdl.c $(LVDRV_DIR)/sdl/sdl_common.c
+
+ALL_C_SRCS   := $(C_SRCS) $(LVGL_C_SRCS) $(LVDRV_C_SRCS)
+ALL_CXX_SRCS := $(CXX_SRCS)
+
+toobj_c   = $(BUILD_DIR)/$(subst ../,,$(patsubst %.c,%.o,$(1)))
+toobj_cpp = $(BUILD_DIR)/$(subst ../,,$(patsubst %.cpp,%.o,$(1)))
+
+C_OBJS   := $(foreach f,$(ALL_C_SRCS),$(call toobj_c,$(f)))
+CXX_OBJS := $(foreach f,$(ALL_CXX_SRCS),$(call toobj_cpp,$(f)))
+
+# Emitted straight into docs/ so index.html can load them with a relative
+# path and GitHub Pages serves them with no extra build step.
+OUT_DIR := $(ROOT)/docs/sim
+TARGET_JS := $(OUT_DIR)/barkboard_sim.js
+
+.PHONY: all clean
+all: $(TARGET_JS)
+
+$(TARGET_JS): $(C_OBJS) $(CXX_OBJS)
+	@mkdir -p $(OUT_DIR)
+	$(EMXX) $(EM_FLAGS) $(EM_LINK_FLAGS) $(C_OBJS) $(CXX_OBJS) -o $@ \
+	  -sMODULARIZE=1 -sEXPORT_NAME=createBarkBoardSim \
+	  -sENVIRONMENT=web
+
+$(BUILD_DIR)/src/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(EMCC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/src/%.o: $(SRC_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(EMCC) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(EMCC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(EMCC) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	rm -rf $(BUILD_DIR) $(OUT_DIR)

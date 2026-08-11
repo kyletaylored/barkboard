@@ -26,6 +26,16 @@ sim/vendor/
 # also un-ignoring the root docs/*.bin this comment is about excluding.
 docs/manifest.json
 !docs/versions/**/*.bin
+
+# docs/sim/{barkboard_sim.js,.wasm} are the WASM build of sim/ (the LVGL
+# desktop simulator, cross-compiled with Emscripten instead of native
+# clang/gcc) embedded as the flasher page's "Live Demo" section. Same
+# never-commit-build-output convention as the docs/*.bin exception above —
+# pages.yml rebuilds it fresh into docs/sim/ on every push. sim/build_wasm/
+# is that build's intermediate object dir (mirrors sim/build/, already
+# implicitly ignored by not being tracked).
+docs/sim/
+sim/build_wasm/
 tools/fonts/*.ttf
 
 # Agent instructions and internal dev/design docs — not meant for the public

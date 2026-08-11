@@ -22,6 +22,16 @@ namespace ui {
 
     void begin();
 
+    // "barkboard-<4 hex chars>", derived from the last 2 bytes of
+    // WiFi.macAddress() — two BarkBoards on the same LAN both registering
+    // plain "barkboard" would collide on mDNS (esp-idf's mdns component
+    // doesn't auto-rename on conflict the way Bonjour/avahi do), so every
+    // caller that needs the device's mDNS name or a link to it uses this
+    // instead of a hardcoded literal. Single source of truth — main.cpp's
+    // MDNS.begin() call and every on-device "Setup: ..."/QR message read
+    // from here rather than duplicating the MAC-slicing logic.
+    String deviceHostname();
+
     // Full-screen busy overlay (spinner + label) on top of whatever screen
     // is showing. main.cpp's loop() is single-threaded and several actions
     // (monitor detail drill-in, mute, incident advance, on-call/SLO fetch,
