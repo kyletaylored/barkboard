@@ -149,6 +149,17 @@ jobs:
           git clone --depth 1 --branch v8.3.11 https://github.com/lvgl/lvgl.git sim/vendor/lvgl
           git clone --depth 1 --branch release/v8.3 https://github.com/lvgl/lv_drivers.git sim/vendor/lv_drivers
 
+      - name: Pre-build Emscripten's SDL2 port (avoids a -j race)
+        # embuilder does this itself the first time any emcc invocation
+        # needs -sUSE_SDL=2 against a cold cache — but Makefile.wasm's `-j`
+        # spawns many emcc processes at once, and they'll all try to
+        # fetch/rebuild the port's shared cache dir concurrently, racing on
+        # `shutil.rmtree` ("OSError: [Errno 39] Directory not empty").
+        # One serial build here populates the cache before any parallel
+        # compile touches it. Not needed for local dev — a dev machine's
+        # cache is normally already warm from an earlier build.
+        run: embuilder build sdl2
+
       - name: Build WASM simulator for the flasher page's Live Demo
         run: make -C sim -f Makefile.wasm -j
 

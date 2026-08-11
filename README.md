@@ -18,6 +18,8 @@ A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8
 
 Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and use the web flasher. Plug in your board, connect to the port, and start the flashing operation. The firmware dropdown lets you pick "Latest (main)" or a specific tagged release.
 
+The site's "Live Demo" section also runs the real dashboard UI in your browser (compiled to WebAssembly from the same `src/ui.cpp` LVGL code, fed canned data) — no board required to see what you'd be flashing.
+
 2. **Local Flash**
 
 Clone the repository locally, connect your board, and run the commands below.
@@ -46,7 +48,7 @@ make flash PORT=/dev/cu.usbserial-1420
 
 1. **Join the setup network.** On first boot (or after a factory reset), the board broadcasts an open WiFi network named **`BarkBoard-XXXX`** — no password. Join it from your phone or laptop.
 2. **Pick your home WiFi.** Open the captive portal (sometimes opens automatically, some have to tap "sign in" on the the mobile network screen) with a scanned list of nearby 2.4GHz networks.
-3. **Open the setup page.** Once connected, reach the device at `http://barkboard.local` or the IP address shown on the panel.
+3. **Open the setup page.** Once connected, reach the device at the `http://barkboard-<4-hex-chars>.local` address shown on the panel (unique per device — MAC-suffixed so two boards on one LAN don't collide) or its raw IP address.
 4. **Enter your Datadog keys.** Just two fields — **API Key** and **Application Key**. There's no site/region dropdown to fill in: the device detects it automatically (usually within a couple of seconds).
 5. **Optional preferences**, same page: a team filter (leave it blank and the device auto-detects your team from your API key), 12h/24h clock format, and a status-LED style.
 
@@ -65,7 +67,7 @@ Six rotating dashboards (swipe or tap the page dots), plus drill-in detail views
 | **SLOs**      | Configured SLOs; tap one for an arc gauge showing remaining error budget                                                                                     |
 | **Bits**      | Recent Bits AI Investigations and their status, across your visible monitors                                                                                 |
 
-Plus a Settings screen (WiFi/site info, re-detect tenant, factory reset) and an animated idle screen.
+Plus a Settings screen (WiFi/site info, a QR code linking to this device's own setup page, re-detect tenant, chirp mute, factory reset — also triggerable by holding the onboard BOOT button for ~2s if touch is ever unresponsive) and an animated idle screen.
 
 ## Learn more
 

@@ -21,7 +21,7 @@ No SSID/password/API-key fields to type on a touchscreen with no keyboard. Inste
 
 1. First boot broadcasts an open WiFi network (`BarkBoard-XXXX`). Join it from a phone or laptop.
 2. A captive portal (a hand-rolled `WebServer` + `DNSServer`, not a third-party library — those turned out to be flaky on this exact board) lets you pick your home network.
-3. Once online, a small web form at `barkboard.local` asks for just two things: a Datadog **API Key** and **Application Key**.
+3. Once online, a small web form at that device's own `barkboard-<4-hex-chars>.local` address (unique per device — MAC-suffixed so two boards on one LAN don't collide; shown on the panel, or scan the QR code in Settings) asks for just two things: a Datadog **API Key** and **Application Key**.
 4. The board itself figures out which of Datadog's ~9 regional sites (US1, US3, EU, etc.) those keys belong to, by probing `validate_keys` against each one in turn. You never have to know or type your org's region.
 
 Everything after that — team scope, on-call team, clock format, LED style, opt-in device metrics — lives on the same settings page, served from the board itself.
