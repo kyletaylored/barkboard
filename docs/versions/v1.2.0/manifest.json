@@ -1,0 +1,28 @@
+{
+  "name": "BarkBoard",
+  "version": "v1.2.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "versions/v1.2.0/bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "versions/v1.2.0/partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "versions/v1.2.0/boot_app0.bin",
+          "offset": 57344
+        },
+        {
+          "path": "versions/v1.2.0/firmware.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}

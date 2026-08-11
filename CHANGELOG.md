@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.0
+
+Changes since v1.1.0:
+
+- Fix mDNS hostname collision, add Settings QR + BOOT-button reset, embed WASM live demo (c42466f)
+- Fetch versions.json from raw.githubusercontent.com to cut cache lag (07181ab)
+- Release v1.1.0: publish versioned flasher artifacts + changelog (c7ca1ce)
+
 ## v1.1.0
 
 Changes since v1.0.0:

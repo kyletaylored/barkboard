@@ -1,5 +1,9 @@
 [
   {
+    "version": "v1.2.0",
+    "manifest": "versions/v1.2.0/manifest.json"
+  },
+  {
     "version": "v1.1.0",
     "manifest": "versions/v1.1.0/manifest.json"
   },
