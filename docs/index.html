@@ -793,6 +793,13 @@
       margin-bottom: 18px
     }
 
+    .bb-modal-title {
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-strong);
+    }
+
     .bb-modal-close {
       appearance: none;
       cursor: pointer;
@@ -960,9 +967,10 @@
   <div class="bb-modal-backdrop" id="demoOverlay">
     <div class="bb-modal-card bb-modal-card--wide" id="demoCard">
       <div class="bb-modal-head">
-        <span class="bb-wordmark" style="font-size:15px">Live Demo</span>
+        <span class="bb-modal-title">Live Demo</span>
         <button type="button" class="bb-modal-close" id="btnDemoClose">&times;</button>
       </div>
+      <p class="bb-dd-desc">The real dashboard UI, running in your browser via WebAssembly.</p>
       <div class="bb-sim-wrap">
         <canvas id="canvas" class="bb-sim-canvas" width="640" height="480"></canvas>
         <div class="bb-sim-status" id="simStatus">Click to load the demo (~1.3 MB)</div>
@@ -973,7 +981,7 @@
   <div class="bb-modal-backdrop" id="monitorOverlay">
     <div class="bb-modal-card" id="monitorCard">
       <div class="bb-modal-head">
-        <span class="bb-wordmark" style="font-size:15px">Monitor BarkBoard</span>
+        <span class="bb-modal-title">Monitor BarkBoard</span>
         <button type="button" class="bb-modal-close" id="btnMonitorClose">&times;</button>
       </div>
       <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
@@ -1620,6 +1628,13 @@
     document.getElementById('btnMonitorClose').addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
     monitorOverlay.addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
     monitorCard.addEventListener('click', (e) => e.stopPropagation());
+
+    // Escape closes whichever modal (About, Live Demo, Monitor BarkBoard —
+    // or any added later) is currently open.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      document.querySelectorAll('.bb-modal-backdrop.is-open').forEach((el) => el.classList.remove('is-open'));
+    });
 
     // The WASM sim is ~1.3MB, so it's loaded on-demand the first time the
     // Live Demo modal is opened rather than on every page visit.
