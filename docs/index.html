@@ -584,63 +584,47 @@
       color: var(--ink-dim)
     }
 
-    .bb-dd-summary {
+    .bb-quicklinks {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 22px;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .bb-quicklink {
+      flex: 1;
+      appearance: none;
       cursor: pointer;
-      list-style: none;
-      user-select: none;
-    }
-
-    .bb-dd-summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .bb-dd-title-group {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      min-width: 0;
-    }
-
-    .bb-dd-subtitle {
-      font-size: 12px;
-      font-weight: 400;
-      color: var(--ink-muted);
-    }
-
-    .bb-dd-toggle {
-      flex: 0 0 auto;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 6px 14px;
-      border-radius: 999px;
+      text-align: left;
+      background: var(--surface);
       border: 1px solid var(--border);
-      color: var(--ink-muted);
+      border-radius: 18px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font: inherit;
+      color: inherit;
+      transition: border-color .15s, background .15s;
     }
 
-    .bb-dd-toggle-open {
-      display: none;
+    .bb-quicklink:hover {
+      border-color: var(--purple-border);
+      background: var(--purple-soft);
     }
 
-    details[open]>.bb-dd-summary .bb-dd-toggle-closed {
-      display: none;
-    }
-
-    details[open]>.bb-dd-summary .bb-dd-toggle-open {
-      display: inline;
-    }
-
-    .bb-dd-body {
-      padding: 0 22px 20px;
-    }
-
-    .bb-dd-title {
+    .bb-quicklink-title {
       font-size: 15px;
       font-weight: 700;
       color: var(--ink-strong);
+    }
+
+    .bb-quicklink-sub {
+      font-size: 12.5px;
+      color: var(--ink-muted);
+    }
+
+    .bb-modal-card--wide {
+      max-width: 720px;
     }
 
     .bb-dd-desc {
@@ -960,94 +944,90 @@
           mobile browsers.</div>
       </div>
 
-      <details class="bb-card" id="demoDetails">
-        <summary class="bb-dd-summary">
-          <span class="bb-dd-title-group">
-            <span class="bb-dd-title">Live Demo</span>
-            <span class="bb-dd-subtitle">Runs the real dashboard UI in your browser, no board needed</span>
-          </span>
-          <span class="bb-dd-toggle">
-            <span class="bb-dd-toggle-closed">Open</span>
-            <span class="bb-dd-toggle-open">Close</span>
-          </span>
-        </summary>
-        <div class="bb-dd-body">
-          <p class="bb-dd-desc">The exact same LVGL screen code that runs on the physical CYD panel (<code>src/ui.cpp</code>),
-            compiled to WebAssembly and fed canned monitor/incident/SLO/on-call data instead of a live Datadog org.
-            Click and drag with the mouse the way you'd touch the panel.</p>
-          <div class="bb-sim-wrap">
-            <canvas id="canvas" class="bb-sim-canvas" width="640" height="480"></canvas>
-            <div class="bb-sim-status" id="simStatus">Click to load the demo (~1.3 MB)</div>
-          </div>
-        </div>
-      </details>
+      <div class="bb-quicklinks">
+        <button type="button" class="bb-quicklink" id="btnOpenDemo">
+          <span class="bb-quicklink-title">Live Demo</span>
+          <span class="bb-quicklink-sub">Runs the real dashboard UI in your browser, no board needed</span>
+        </button>
+        <button type="button" class="bb-quicklink" id="btnOpenMonitor">
+          <span class="bb-quicklink-title">Monitor BarkBoard</span>
+          <span class="bb-quicklink-sub">Dashboard &amp; Monitor Templates</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
-      <details class="bb-card">
-        <summary class="bb-dd-summary">
-          <span class="bb-dd-title-group">
-            <span class="bb-dd-title">Monitor BarkBoard</span>
-            <span class="bb-dd-subtitle">Dashboard &amp; Monitor Templates</span>
-          </span>
-          <span class="bb-dd-toggle">
-            <span class="bb-dd-toggle-closed">Open</span>
-            <span class="bb-dd-toggle-open">Close</span>
-          </span>
-        </summary>
-        <div class="bb-dd-body">
-          <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
-            Events in your org (off by default).</p>
-          <div class="bb-dd-list">
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">Device Monitoring dashboard</div>
-                <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
-                </div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
-            </div>
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">Device offline (no data)</div>
-                <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json"
-                download>Download</a>
-            </div>
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">Heap usage high</div>
-                <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json"
-                download>Download</a>
-            </div>
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">Task stack headroom low</div>
-                <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512</div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json"
-                download>Download</a>
-            </div>
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">WiFi signal poor</div>
-                <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json"
-                download>Download</a>
-            </div>
-            <div class="bb-dd-item">
-              <div>
-                <div class="bb-dd-item-name">Abnormal reboot detected</div>
-                <div class="bb-dd-item-desc">Fires on panic/watchdog/brownout reboots</div>
-              </div>
-              <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json"
-                download>Download</a>
+  <div class="bb-modal-backdrop" id="demoOverlay">
+    <div class="bb-modal-card bb-modal-card--wide" id="demoCard">
+      <div class="bb-modal-head">
+        <span class="bb-wordmark" style="font-size:15px">Live Demo</span>
+        <button type="button" class="bb-modal-close" id="btnDemoClose">&times;</button>
+      </div>
+      <div class="bb-sim-wrap">
+        <canvas id="canvas" class="bb-sim-canvas" width="640" height="480"></canvas>
+        <div class="bb-sim-status" id="simStatus">Click to load the demo (~1.3 MB)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bb-modal-backdrop" id="monitorOverlay">
+    <div class="bb-modal-card" id="monitorCard">
+      <div class="bb-modal-head">
+        <span class="bb-wordmark" style="font-size:15px">Monitor BarkBoard</span>
+        <button type="button" class="bb-modal-close" id="btnMonitorClose">&times;</button>
+      </div>
+      <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
+        Events in your org (off by default).</p>
+      <div class="bb-dd-list">
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Device Monitoring dashboard</div>
+            <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
             </div>
           </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/dashboard.json" download>Download</a>
         </div>
-      </details>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Device offline (no data)</div>
+            <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/device-offline.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Heap usage high</div>
+            <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/heap-usage-high.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Task stack headroom low</div>
+            <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/task-stack-low.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">WiFi signal poor</div>
+            <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/wifi-signal-poor.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Abnormal reboot detected</div>
+            <div class="bb-dd-item-desc">Fires on panic/watchdog/brownout reboots</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="datadog/monitors/abnormal-reboot.json"
+            download>Download</a>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1085,7 +1065,7 @@
       <ol>
         <li>Join the open <code>BarkBoard-XXXX</code> WiFi network it broadcasts</li>
         <li>Pick your home WiFi in the captive portal</li>
-        <li>Open <code>barkboard.local</code> and enter your API &amp; Application keys</li>
+        <li>Open the <code>barkboard-XXXX.local</code> address shown on its screen and enter your API &amp; Application keys</li>
         <li>It rotates through Overview, Monitors, Incidents, On-Call, and SLOs</li>
       </ol>
     </div>
@@ -1625,15 +1605,30 @@
 
     updateFlashButtons();
 
-    // Live Demo: the WASM sim is ~1.3MB, so it's loaded on-demand the first
-    // time the <details> is opened rather than on every page visit.
+    // Live Demo + Monitor BarkBoard modals, same open/close/backdrop-click
+    // pattern as the About modal above.
+    const demoOverlay = document.getElementById('demoOverlay');
+    const demoCard = document.getElementById('demoCard');
+    document.getElementById('btnOpenDemo').addEventListener('click', () => demoOverlay.classList.add('is-open'));
+    document.getElementById('btnDemoClose').addEventListener('click', () => demoOverlay.classList.remove('is-open'));
+    demoOverlay.addEventListener('click', () => demoOverlay.classList.remove('is-open'));
+    demoCard.addEventListener('click', (e) => e.stopPropagation());
+
+    const monitorOverlay = document.getElementById('monitorOverlay');
+    const monitorCard = document.getElementById('monitorCard');
+    document.getElementById('btnOpenMonitor').addEventListener('click', () => monitorOverlay.classList.add('is-open'));
+    document.getElementById('btnMonitorClose').addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
+    monitorOverlay.addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
+    monitorCard.addEventListener('click', (e) => e.stopPropagation());
+
+    // The WASM sim is ~1.3MB, so it's loaded on-demand the first time the
+    // Live Demo modal is opened rather than on every page visit.
     (function () {
-      const demoDetails = document.getElementById('demoDetails');
       const simStatus = document.getElementById('simStatus');
       let loadStarted = false;
 
-      demoDetails.addEventListener('toggle', () => {
-        if (!demoDetails.open || loadStarted) return;
+      document.getElementById('btnOpenDemo').addEventListener('click', () => {
+        if (loadStarted) return;
         loadStarted = true;
         simStatus.textContent = 'Loading demo…';
 
