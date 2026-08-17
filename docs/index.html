@@ -140,46 +140,78 @@
       padding: 0 28px;
     }
 
-    /* ---------- nav ---------- */
-    header.site-nav {
+    /* ---------- nav ----------
+       Same classes/values as flash/index.html's .bb-header — that page's
+       header was the original; this one had drifted into its own
+       site-nav/brand/chip set with slightly different sizes and a
+       translucent blurred background instead of flash's solid one. Only
+       addition here is position:sticky, a landing-page-specific choice
+       (anchor nav for a long scrolling page) that doesn't change how it
+       looks, just when it stays visible. */
+    .bb-header {
       position: sticky;
       top: 0;
       z-index: 40;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 28px;
-      background: color-mix(in oklch, var(--bg) 88%, transparent);
-      backdrop-filter: blur(10px);
+      flex-wrap: wrap;
+      gap: 14px;
+      background: var(--surface);
+      padding: 18px 28px;
       border-bottom: 1px solid var(--border);
     }
-    .brand {
+    .bb-brand-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; text-decoration: none; }
+    .bb-wordmark { font-family: 'Press Start 2P', monospace; font-size: 18px; letter-spacing: 1px; color: var(--ink-strong); }
+    .bb-wordmark span { color: var(--purple); }
+    .bb-chip {
       display: flex;
       align-items: center;
-      gap: 10px;
-      text-decoration: none;
-    }
-    .brand .pixel { font-size: 15px; color: var(--ink-strong); }
-    .brand .pixel span { color: var(--purple); }
-    .chip {
-      display: inline-flex;
-      align-items: center;
       gap: 6px;
-      font-size: 10.5px;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: .03em;
+      letter-spacing: .08em;
       text-transform: uppercase;
       color: var(--ink-muted);
       background: var(--chip-bg);
       border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 4px 10px;
+      border-radius: 6px;
+      padding: 5px 9px 5px 8px;
     }
-    .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--purple); }
-
-    nav.links { display: flex; align-items: center; gap: 26px; font-size: 13.5px; font-weight: 500; }
-    nav.links a.navlink { color: var(--ink-muted); text-decoration: none; }
-    nav.links a.navlink:hover { color: var(--ink-strong); }
+    .bb-chip .dot { width: 6px; height: 6px; border-radius: 1px; background: var(--purple); display: inline-block; }
+    .bb-header-right { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+    .bb-link-btn {
+      appearance: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      background: transparent;
+      border: none;
+      padding: 6px 0;
+      text-decoration: none;
+      transition: color .15s ease;
+    }
+    .bb-link-btn:hover { color: var(--ink-strong); }
+    .page-nav { display: flex; align-items: center; gap: 26px; font-size: 13.5px; font-weight: 500; }
+    .bb-btn-primary {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      color: oklch(0.99 0 0);
+      background: var(--purple);
+      padding: 10px 18px;
+      border-radius: 9px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: filter .15s ease;
+    }
+    .bb-btn-primary:hover { filter: brightness(1.12); }
 
     .btn {
       appearance: none;
@@ -457,26 +489,26 @@
       .hero-grid { grid-template-columns: 1fr; }
       .demo-shell { grid-template-columns: 1fr; }
       .screens-rail { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 200px; overflow-x: auto; padding-bottom: 6px; }
-      nav.links { display: none; }
+      .page-nav { display: none; }
     }
   </style>
 </head>
 
 <body>
 
-  <header class="site-nav">
-    <a class="brand" href="#top">
-      <span class="pixel">BARK<span>BOARD</span></span>
-      <span class="chip"><span class="dot"></span>Powered by Datadog</span>
+  <div class="bb-header">
+    <a class="bb-brand-group" href="#top">
+      <span class="bb-wordmark">BARK<span>BOARD</span></span>
+      <span class="bb-chip"><span class="dot"></span>Powered by Datadog</span>
     </a>
-    <nav class="links">
-      <a class="navlink" href="#screens">Screens</a>
-      <a class="navlink" href="#specs">Specs</a>
-      <a class="navlink" href="#demo">Demo</a>
-      <a class="navlink" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener">GitHub</a>
+    <nav class="page-nav">
+      <a class="bb-link-btn" href="#screens">Screens</a>
+      <a class="bb-link-btn" href="#specs">Specs</a>
+      <a class="bb-link-btn" href="#demo">Demo</a>
+      <a class="bb-link-btn" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener">GitHub</a>
     </nav>
-    <a class="btn btn-primary" href="flash/">Flash it &rarr;</a>
-  </header>
+    <a class="bb-btn-primary" href="flash/">Flash it &rarr;</a>
+  </div>
 
   <main>
     <section class="hero" id="top">
