@@ -3,7 +3,7 @@ name: Release
 # Cuts a versioned release: builds firmware, generates a changelog from the
 # commits since the previous tag, publishes a GitHub Release with that
 # changelog and the raw binaries attached, AND republishes the browser
-# flasher (docs/index.html) with this version added to its version picker —
+# flasher (docs/flash/index.html) with this version added to its version picker —
 # self-hosted under docs/versions/<tag>/, not fetched from the GitHub
 # Release's own assets. GitHub release-asset downloads have a
 # well-documented history of inconsistent CORS behavior for in-browser

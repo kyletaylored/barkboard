@@ -16,7 +16,7 @@ A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8
 
 1. **Web Flash**
 
-Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and use the web flasher. Plug in your board, connect to the port, and start the flashing operation. The firmware dropdown lets you pick "Latest (main)" or a specific tagged release.
+Visit the project site ([kyletaylored.com/barkboard](https://kyletaylored.com/barkboard)) and click "Flash it" to open the web flasher. Plug in your board, connect to the port, and start the flashing operation. The firmware dropdown lets you pick "Latest (main)" or a specific tagged release.
 
 The site's "Live Demo" section also runs the real dashboard UI in your browser (compiled to WebAssembly from the same `src/ui.cpp` LVGL code, fed canned data) — no board required to see what you'd be flashing.
 

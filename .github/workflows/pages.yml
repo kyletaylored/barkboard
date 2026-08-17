@@ -1,8 +1,10 @@
 name: Build & Deploy Browser Flasher
 
-# Builds the firmware, drops the binaries into docs/ alongside the existing
-# ESP Web Tools page (docs/index.html + docs/manifest.json), and deploys
-# docs/ to GitHub Pages via the modern actions/deploy-pages flow.
+# Builds the firmware, drops the binaries into docs/ alongside the ESP Web
+# Tools page (docs/flash/index.html + docs/manifest.json — the flasher was
+# split out to its own subpage from a new docs/index.html marketing landing
+# page; see the commit that did that split for why), and deploys docs/ to
+# GitHub Pages via the modern actions/deploy-pages flow.
 #
 # This is intentionally a SEPARATE workflow from build.yml (the compile-check
 # CI) — that one stays untouched. This one additionally publishes artifacts.
@@ -34,6 +36,8 @@ on:
       - "assets/**"
       - "platformio.ini"
       - "docs/index.html"
+      - "docs/flash/index.html"
+      - "docs/assets/**"
       - "docs/manifest.json"
       - "docs/versions.json"
       - "sim/**"

@@ -1,0 +1,1662 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BarkBoard — Web Flasher</title>
+  <meta name="description"
+    content="Flash BarkBoard firmware to your ESP32-2432S028R board directly from the browser — no IDE required.">
+  <meta name="author" content="Kyle Taylor">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kyletaylored.com/barkboard/flash/">
+  <meta property="og:title" content="BarkBoard — Web Flasher">
+  <meta property="og:description"
+    content="Flash BarkBoard firmware to your ESP32-2432S028R board directly from the browser — no IDE required.">
+  <meta property="og:image" content="https://kyletaylored.com/barkboard/assets/barkboard-banner.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BarkBoard — Web Flasher">
+  <meta name="twitter:description"
+    content="Flash BarkBoard firmware to your ESP32-2432S028R board directly from the browser — no IDE required.">
+  <meta name="twitter:image" content="https://kyletaylored.com/barkboard/assets/barkboard-banner.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <script>
+    (function () {
+      var stored = null;
+      try { stored = localStorage.getItem('bb-theme'); } catch (e) { }
+      var mode = stored || 'auto';
+      var dark = mode === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme-mode', mode);
+    })();
+  </script>
+  <style>
+    :root {
+      --purple: oklch(0.62 0.23 302);
+      --purple-soft: oklch(0.62 0.23 302 / 0.14);
+      --purple-border: oklch(0.62 0.23 302 / 0.3);
+      --ok: oklch(0.72 0.17 150);
+      --warn: oklch(0.78 0.15 85);
+      --alert: oklch(0.63 0.21 25);
+
+      --bg: oklch(0.13 0.012 285);
+      --bg-dot: oklch(0.28 0.02 285);
+      --surface: oklch(0.17 0.015 285);
+      --border: oklch(0.28 0.02 285);
+      --chip-bg: oklch(0.19 0.016 285);
+      --ink: oklch(0.85 0.006 285);
+      --ink-strong: oklch(0.97 0.004 285);
+      --ink-muted: oklch(0.68 0.02 285);
+      --ink-dim: oklch(0.5 0.015 285);
+      --console: oklch(0.1 0.01 285);
+      --console-dim: oklch(0.42 0.015 285);
+    }
+
+    :root[data-theme="light"] {
+      --bg: oklch(0.95 0.006 285);
+      --bg-dot: oklch(0.86 0.012 285);
+      --surface: oklch(0.99 0.003 285);
+      --border: oklch(0.87 0.01 285);
+      --chip-bg: oklch(0.93 0.006 285);
+      --ink: oklch(0.3 0.015 285);
+      --ink-strong: oklch(0.15 0.015 285);
+      --ink-muted: oklch(0.42 0.018 285);
+      --ink-dim: oklch(0.58 0.015 285);
+      --console: oklch(0.16 0.012 285);
+      --console-dim: oklch(0.55 0.015 285);
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    ::selection {
+      background: oklch(0.62 0.23 302 / 0.35)
+    }
+
+    @keyframes bb-blink {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.25
+      }
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: var(--ink);
+      background-color: var(--bg);
+      background-image: radial-gradient(var(--bg-dot) 1px, transparent 1px), radial-gradient(ellipse 900px 500px at 50% -10%, oklch(0.3 0.09 302 / 0.28), transparent);
+      background-size: 22px 22px, 100% 100%;
+      transition: background-color .15s ease, color .15s ease;
+    }
+
+    a {
+      color: var(--purple)
+    }
+
+    button {
+      font-family: inherit
+    }
+
+    code {
+      font-family: 'JetBrains Mono', monospace
+    }
+
+    .bb-header,
+    .bb-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      background: var(--surface);
+    }
+
+    .bb-header {
+      padding: 18px 28px;
+      border-bottom: 1px solid var(--border)
+    }
+
+    .bb-footer {
+      padding: 16px 28px;
+      border-top: 1px solid var(--border)
+    }
+
+    .bb-brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap
+    }
+
+    .bb-wordmark {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 18px;
+      letter-spacing: 1px;
+      color: var(--ink-strong)
+    }
+
+    .bb-wordmark span {
+      color: var(--purple)
+    }
+
+    .bb-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      background: var(--chip-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 9px 5px 8px;
+    }
+
+    .bb-chip .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 1px;
+      background: var(--purple);
+      display: inline-block
+    }
+
+    .bb-header-right {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap
+    }
+
+    .bb-link-btn {
+      appearance: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      background: transparent;
+      border: none;
+      padding: 6px 0;
+      transition: color .15s ease;
+    }
+
+    .bb-link-btn:hover {
+      color: var(--ink-strong)
+    }
+
+    .bb-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--chip-bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 14px;
+      color: var(--ink-muted);
+    }
+
+    .bb-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink-dim);
+      display: inline-block
+    }
+
+    .bb-status.is-connecting {
+      color: oklch(0.6 0.13 85)
+    }
+
+    .bb-status.is-connecting .dot {
+      background: var(--warn);
+      box-shadow: 0 0 10px var(--warn);
+      animation: bb-blink 1s ease-in-out infinite
+    }
+
+    .bb-status.is-connected {
+      color: oklch(0.55 0.13 150)
+    }
+
+    .bb-status.is-connected .dot {
+      background: var(--ok);
+      box-shadow: 0 0 10px var(--ok)
+    }
+
+    .bb-btn-primary {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      color: oklch(0.99 0 0);
+      background: var(--purple);
+      padding: 10px 18px;
+      border-radius: 9px;
+      transition: filter .15s ease;
+    }
+
+    .bb-btn-primary:hover {
+      filter: brightness(1.12)
+    }
+
+    .bb-btn-primary:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      filter: none
+    }
+
+    .bb-main {
+      flex: 1;
+      padding: 36px 24px
+    }
+
+    .bb-main-inner {
+      max-width: 900px;
+      margin: 0 auto
+    }
+
+    .bb-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden
+    }
+
+    .bb-card+.bb-card {
+      margin-top: 24px
+    }
+
+    .bb-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .bb-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px
+    }
+
+    .bb-tab {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 7px;
+      color: var(--ink-muted);
+      background: transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+
+    .bb-tab.is-active {
+      background: var(--purple);
+      color: #fff
+    }
+
+    .bb-toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px
+    }
+
+    .bb-autoscroll {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--ink-muted);
+      cursor: pointer;
+      user-select: none;
+      background: transparent;
+      border: none;
+      appearance: none;
+      padding: 0
+    }
+
+    .bb-switch {
+      width: 34px;
+      height: 19px;
+      border-radius: 999px;
+      background: var(--border);
+      position: relative;
+      transition: background .15s ease;
+      display: inline-block;
+      flex: 0 0 auto
+    }
+
+    .bb-switch.is-on {
+      background: var(--purple)
+    }
+
+    .bb-switch .thumb {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #fff;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: left .15s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .4)
+    }
+
+    .bb-switch.is-on .thumb {
+      left: 17px
+    }
+
+    .bb-btn-outline {
+      appearance: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 7px 13px;
+      border-radius: 7px;
+      transition: color .15s ease;
+    }
+
+    .bb-btn-outline:hover {
+      color: var(--ink-strong)
+    }
+
+    .bb-flashrow {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border)
+    }
+
+    .bb-select {
+      appearance: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-dim);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 34px 10px 14px;
+      cursor: not-allowed;
+    }
+
+    .bb-flash-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 10px
+    }
+
+    .bb-btn-primary-sm {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      color: oklch(0.99 0 0);
+      background: var(--purple);
+      padding: 10px 18px;
+      border-radius: 8px;
+      transition: opacity .15s ease;
+    }
+
+    .bb-btn-erase {
+      appearance: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--alert);
+      background: transparent;
+      border: 1px solid oklch(0.5 0.15 25 / 0.5);
+      padding: 10px 18px;
+      border-radius: 8px;
+      transition: opacity .15s ease;
+    }
+
+    .bb-progress {
+      padding: 14px 20px 0
+    }
+
+    .bb-progress-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-bottom: 6px;
+      font-family: 'JetBrains Mono', monospace
+    }
+
+    .bb-progress-track {
+      height: 6px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      overflow: hidden
+    }
+
+    .bb-progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--purple);
+      width: 0%;
+      transition: width .2s ease
+    }
+
+    .bb-chips {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      margin: 18px 20px 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden
+    }
+
+    .bb-chip-cell {
+      background: var(--bg);
+      padding: 12px 14px
+    }
+
+    .bb-chip-cell .label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      margin-bottom: 5px
+    }
+
+    .bb-chip-cell .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--ink-strong)
+    }
+
+    .bb-console {
+      margin: 18px 20px 20px;
+      height: 440px;
+      min-height: 200px;
+      max-height: 80vh;
+      resize: vertical;
+      overflow-y: auto;
+      background: var(--console);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+
+    .bb-console::-webkit-scrollbar {
+      width: 10px
+    }
+
+    .bb-console::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 6px
+    }
+
+    .bb-log {
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: oklch(0.85 0.006 285)
+    }
+
+    .bb-log.k-ok {
+      color: var(--ok)
+    }
+
+    .bb-log.k-warn {
+      color: var(--warn)
+    }
+
+    .bb-log.k-error {
+      color: var(--alert)
+    }
+
+    .bb-log.k-sys {
+      color: var(--console-dim)
+    }
+
+    .bb-log-empty {
+      color: var(--console-dim);
+      font-style: italic
+    }
+
+    .bb-footnote {
+      padding: 0 20px 18px;
+      font-size: 12.5px;
+      color: var(--ink-dim)
+    }
+
+    .bb-quicklinks {
+      display: flex;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .bb-quicklink {
+      flex: 1;
+      appearance: none;
+      cursor: pointer;
+      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font: inherit;
+      color: inherit;
+      transition: border-color .15s, background .15s;
+    }
+
+    .bb-quicklink:hover {
+      border-color: var(--purple-border);
+      background: var(--purple-soft);
+    }
+
+    .bb-quicklink-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink-strong);
+    }
+
+    .bb-quicklink-sub {
+      font-size: 12.5px;
+      color: var(--ink-muted);
+    }
+
+    .bb-modal-card--wide {
+      max-width: 720px;
+    }
+
+    .bb-dd-desc {
+      font-size: 13px;
+      color: var(--ink-muted);
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .bb-dd-list {
+      display: grid;
+      gap: 1px;
+      background: var(--border);
+      margin: 16px 0 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .bb-dd-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      background: var(--bg);
+      padding: 13px 16px;
+    }
+
+    .bb-dd-item-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .bb-dd-item-desc {
+      font-size: 12px;
+      color: var(--ink-dim);
+      margin-top: 2px;
+    }
+
+    .bb-sim-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .bb-sim-canvas {
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 640 / 480;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      image-rendering: pixelated;
+      cursor: pointer;
+    }
+
+    .bb-sim-status {
+      font-size: 12px;
+      color: var(--ink-dim);
+    }
+
+    .bb-unsupported {
+      margin: 0 20px 18px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: oklch(0.25 0.08 25 / 0.5);
+      color: oklch(0.85 0.1 25);
+      border: 1px solid oklch(0.4 0.15 25 / 0.6);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .bb-theme-switch {
+      display: flex;
+      gap: 3px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px
+    }
+
+    .bb-theme-btn {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 6px;
+      color: var(--ink-muted);
+      background: transparent
+    }
+
+    .bb-theme-btn.is-active {
+      background: var(--purple);
+      color: #fff
+    }
+
+    .bb-copyright {
+      font-size: 12.5px;
+      color: var(--ink-dim);
+      text-align: center;
+      line-height: 1.4em;
+    }
+
+    .bb-github {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      text-decoration: none;
+      background: var(--chip-bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      transition: color .15s ease, border-color .15s ease;
+    }
+
+    .bb-github:hover {
+      color: var(--ink-strong);
+      border-color: var(--purple)
+    }
+
+    .bb-github svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    .bb-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: oklch(0.05 0.01 285 / 0.72);
+      backdrop-filter: blur(3px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 50;
+    }
+
+    .bb-modal-backdrop.is-open {
+      display: flex
+    }
+
+    .bb-modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      max-width: 520px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 32px
+    }
+
+    .bb-modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px
+    }
+
+    .bb-modal-title {
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-strong);
+    }
+
+    .bb-modal-close {
+      appearance: none;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      color: var(--ink-muted);
+      font-size: 20px;
+      line-height: 1;
+      padding: 4px
+    }
+
+    .bb-modal-card p {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--ink-muted);
+      margin: 0 0 20px
+    }
+
+    .bb-modal-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      margin-bottom: 10px
+    }
+
+    .bb-modal-card ul,
+    .bb-modal-card ol {
+      margin: 0 0 22px;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 9px;
+      font-size: 13.5px;
+      color: var(--ink);
+      line-height: 1.5
+    }
+
+    .bb-modal-card ol {
+      padding-left: 18px;
+      list-style: decimal
+    }
+
+    .bb-modal-card ul li {
+      display: flex;
+      gap: 9px
+    }
+
+    .bb-modal-card ul li::before {
+      content: '▪';
+      color: var(--purple);
+      flex: 0 0 auto
+    }
+
+    .bb-modal-card code {
+      color: var(--ink-strong)
+    }
+
+
+    @media (max-width: 640px) {
+      .bb-flash-actions {
+        margin-left: 0;
+        width: 100%
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="bb-header">
+    <div class="bb-brand-group">
+      <a href="../" style="text-decoration:none"><span class="bb-wordmark">BARK<span>BOARD</span></span></a>
+      <span class="bb-chip"><span class="dot"></span>Powered by Datadog</span>
+    </div>
+    <div class="bb-header-right">
+      <a class="bb-link-btn" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener"
+        style="text-decoration:none">Docs</a>
+      <button type="button" class="bb-link-btn" id="btnAbout">About</button>
+      <div class="bb-status" id="statusPill"><span class="dot"></span><span id="statusLabel">Not connected</span></div>
+      <button type="button" class="bb-btn-primary" id="btnConnect">Connect Device</button>
+    </div>
+  </div>
+
+  <div class="bb-main">
+    <div class="bb-main-inner">
+      <div class="bb-card">
+
+        <div class="bb-toolbar">
+          <div class="bb-tabs">
+            <button type="button" class="bb-tab is-active" id="tabFlash">Flash Console</button>
+            <button type="button" class="bb-tab" id="tabTerminal">Serial Terminal</button>
+          </div>
+          <div class="bb-toolbar-right">
+            <button type="button" class="bb-autoscroll" id="btnAutoscroll">
+              Autoscroll
+              <span class="bb-switch is-on" id="autoscrollSwitch"><span class="thumb"></span></span>
+            </button>
+            <button type="button" class="bb-btn-outline" id="btnCopyLog">Copy</button>
+            <button type="button" class="bb-btn-outline" id="btnClear">Clear</button>
+          </div>
+        </div>
+
+        <div class="bb-flashrow" id="flashRow">
+          <select class="bb-select" disabled>
+            <option>Board — ESP32-2432S028R (CYD)</option>
+          </select>
+          <select class="bb-select" disabled id="firmwareSelect">
+            <option>Firmware — latest</option>
+          </select>
+          <div class="bb-flash-actions">
+            <button type="button" class="bb-btn-primary-sm" id="btnProgram" disabled>Flash</button>
+            <button type="button" class="bb-btn-erase" id="btnErase" disabled>Erase</button>
+          </div>
+        </div>
+
+        <div class="bb-progress" id="progressWrap" style="display:none">
+          <div class="bb-progress-row"><span id="progressLabel"></span><span id="progressPercent">0%</span></div>
+          <div class="bb-progress-track">
+            <div class="bb-progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+
+        <div class="bb-chips" id="chipsWrap" style="display:none">
+          <div class="bb-chip-cell">
+            <div class="label">Chip Type</div>
+            <div class="value" id="chipType">—</div>
+          </div>
+          <div class="bb-chip-cell">
+            <div class="label">MAC Address</div>
+            <div class="value" id="chipMac">—</div>
+          </div>
+          <div class="bb-chip-cell">
+            <div class="label">Flash Size</div>
+            <div class="value" id="chipFlash">—</div>
+          </div>
+        </div>
+
+        <div class="bb-console" id="consoleEl">
+          <div class="bb-log-empty" id="logEmpty">No output yet. Click Connect to begin.</div>
+        </div>
+
+        <div class="bb-unsupported" id="unsupportedNote" style="display:none">
+          Your browser doesn't support WebSerial. Use desktop <b>Chrome</b> or <b>Edge</b> — WebSerial isn't available
+          on Firefox, Safari, or mobile browsers.
+        </div>
+        <div class="bb-footnote">Requires desktop Chrome or Edge — WebSerial isn't available on Firefox, Safari, or
+          mobile browsers.</div>
+      </div>
+
+      <div class="bb-quicklinks">
+        <button type="button" class="bb-quicklink" id="btnOpenDemo">
+          <span class="bb-quicklink-title">Live Demo</span>
+          <span class="bb-quicklink-sub">Runs the real dashboard UI in your browser, no board needed</span>
+        </button>
+        <button type="button" class="bb-quicklink" id="btnOpenMonitor">
+          <span class="bb-quicklink-title">Monitor BarkBoard</span>
+          <span class="bb-quicklink-sub">Dashboard &amp; Monitor Templates</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bb-modal-backdrop" id="demoOverlay">
+    <div class="bb-modal-card bb-modal-card--wide" id="demoCard">
+      <div class="bb-modal-head">
+        <span class="bb-modal-title">Live Demo</span>
+        <button type="button" class="bb-modal-close" id="btnDemoClose">&times;</button>
+      </div>
+      <p class="bb-dd-desc">The real dashboard UI, running in your browser via WebAssembly.</p>
+      <div class="bb-sim-wrap">
+        <canvas id="canvas" class="bb-sim-canvas" width="640" height="480"></canvas>
+        <div class="bb-sim-status" id="simStatus">Click to load the demo (~1.3 MB)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bb-modal-backdrop" id="monitorOverlay">
+    <div class="bb-modal-card" id="monitorCard">
+      <div class="bb-modal-head">
+        <span class="bb-modal-title">Monitor BarkBoard</span>
+        <button type="button" class="bb-modal-close" id="btnMonitorClose">&times;</button>
+      </div>
+      <p class="bb-dd-desc">Enable device metrics/events in Settings to get <code>barkboard.*</code> metrics and
+        Events in your org (off by default).</p>
+      <div class="bb-dd-list">
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Device Monitoring dashboard</div>
+            <div class="bb-dd-item-desc">Heap, task stack/busy %, WiFi signal, uptime, and abnormal-reboot events
+            </div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/dashboard.json" download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Device offline (no data)</div>
+            <div class="bb-dd-item-desc">Fires when a device stops reporting for 10+ minutes</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/monitors/device-offline.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Heap usage high</div>
+            <div class="bb-dd-item-desc">Warning at 75%, critical at 90% heap used</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/monitors/heap-usage-high.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Task stack headroom low</div>
+            <div class="bb-dd-item-desc">Warning under 1024 bytes free, critical under 512</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/monitors/task-stack-low.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">WiFi signal poor</div>
+            <div class="bb-dd-item-desc">Warning under -70 dBm, critical under -80 dBm</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/monitors/wifi-signal-poor.json"
+            download>Download</a>
+        </div>
+        <div class="bb-dd-item">
+          <div>
+            <div class="bb-dd-item-name">Abnormal reboot detected</div>
+            <div class="bb-dd-item-desc">Fires on panic/watchdog/brownout reboots</div>
+          </div>
+          <a class="bb-btn-outline" style="text-decoration:none" href="../datadog/monitors/abnormal-reboot.json"
+            download>Download</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bb-footer">
+    <div class="bb-theme-switch" id="themeSwitch">
+      <button type="button" class="bb-theme-btn" data-mode="auto">Auto</button>
+      <button type="button" class="bb-theme-btn" data-mode="light">Light</button>
+      <button type="button" class="bb-theme-btn" data-mode="dark">Dark</button>
+    </div>
+    <div class="bb-copyright" id="copyright">Open source, made with 💜 by Kyle Taylor. Not an official Datadog product.
+    </div>
+    <a class="bb-github" href="https://github.com/kyletaylored/barkboard" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+      GitHub
+    </a>
+  </div>
+
+  <div class="bb-modal-backdrop" id="aboutOverlay">
+    <div class="bb-modal-card" id="aboutCard">
+      <div class="bb-modal-head">
+        <span class="bb-wordmark" style="font-size:15px">BARK<span>BOARD</span></span>
+        <button type="button" class="bb-modal-close" id="btnAboutClose">&times;</button>
+      </div>
+      <p>A Datadog assistant showing live monitors, incidents, on-call, and SLOs on a 2.8&Prime; touchscreen sitting on
+        your desk.</p>
+      <div class="bb-modal-label">What you'll need</div>
+      <ul>
+        <li>An ESP32-2432S028R "CYD" board and a data cable</li>
+        <li>A Datadog org with an API Key and an Application Key</li>
+      </ul>
+      <div class="bb-modal-label">After flashing</div>
+      <ol>
+        <li>Join the open <code>BarkBoard-XXXX</code> WiFi network it broadcasts</li>
+        <li>Pick your home WiFi in the captive portal</li>
+        <li>Open the <code>barkboard-XXXX.local</code> address shown on its screen and enter your API &amp; Application keys</li>
+        <li>It rotates through Overview, Monitors, Incidents, On-Call, and SLOs</li>
+      </ol>
+    </div>
+  </div>
+
+  <script type="module">
+    import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.6.0/bundle.js";
+
+    const els = {
+      btnAbout: document.getElementById('btnAbout'),
+      btnAboutClose: document.getElementById('btnAboutClose'),
+      aboutOverlay: document.getElementById('aboutOverlay'),
+      aboutCard: document.getElementById('aboutCard'),
+      statusPill: document.getElementById('statusPill'),
+      statusLabel: document.getElementById('statusLabel'),
+      btnConnect: document.getElementById('btnConnect'),
+      tabFlash: document.getElementById('tabFlash'),
+      tabTerminal: document.getElementById('tabTerminal'),
+      flashRow: document.getElementById('flashRow'),
+      btnAutoscroll: document.getElementById('btnAutoscroll'),
+      autoscrollSwitch: document.getElementById('autoscrollSwitch'),
+      btnCopyLog: document.getElementById('btnCopyLog'),
+      btnClear: document.getElementById('btnClear'),
+      btnProgram: document.getElementById('btnProgram'),
+      btnErase: document.getElementById('btnErase'),
+      progressWrap: document.getElementById('progressWrap'),
+      progressLabel: document.getElementById('progressLabel'),
+      progressPercent: document.getElementById('progressPercent'),
+      progressFill: document.getElementById('progressFill'),
+      chipsWrap: document.getElementById('chipsWrap'),
+      chipType: document.getElementById('chipType'),
+      chipMac: document.getElementById('chipMac'),
+      chipFlash: document.getElementById('chipFlash'),
+      consoleEl: document.getElementById('consoleEl'),
+      logEmpty: document.getElementById('logEmpty'),
+      unsupportedNote: document.getElementById('unsupportedNote'),
+      themeSwitch: document.getElementById('themeSwitch'),
+      copyright: document.getElementById('copyright'),
+      firmwareSelect: document.getElementById('firmwareSelect'),
+    };
+
+    els.copyright.innerHTML = 'Open source, made with 💜 by Kyle Taylor with Datadog © ' + new Date().getFullYear() + '<br /><i>Not an official Datadog product.</i>';
+
+    const state = {
+      connected: false,
+      connecting: false,
+      connMode: null,
+      activeTab: 'flash',
+      autoscroll: true,
+      flashing: false,
+      erasing: false,
+      aboutOpen: false,
+    };
+
+    // --- Console log ---
+    let logCount = 0;
+    function addLog(text, kind) {
+      if (logCount === 0) els.logEmpty.remove();
+      logCount++;
+      const div = document.createElement('div');
+      div.className = 'bb-log' + (kind ? ' k-' + kind : '');
+      div.textContent = text;
+      els.consoleEl.appendChild(div);
+      if (state.autoscroll) els.consoleEl.scrollTop = els.consoleEl.scrollHeight;
+    }
+    function clearLogs() {
+      els.consoleEl.innerHTML = '';
+      els.consoleEl.appendChild(els.logEmpty);
+      logCount = 0;
+    }
+
+    const terminal = {
+      clean() { clearLogs(); },
+      writeLine(data) { addLog(data, 'default'); },
+      write(data) { addLog(data, 'default'); },
+    };
+
+    // --- Toolbar ---
+    els.btnAutoscroll.addEventListener('click', () => {
+      state.autoscroll = !state.autoscroll;
+      els.autoscrollSwitch.classList.toggle('is-on', state.autoscroll);
+    });
+    els.btnClear.addEventListener('click', clearLogs);
+
+    els.btnCopyLog.addEventListener('click', async () => {
+      const text = Array.from(els.consoleEl.querySelectorAll('.bb-log')).map((el) => el.textContent).join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = els.btnCopyLog.textContent;
+        els.btnCopyLog.textContent = 'Copied!';
+        setTimeout(() => { els.btnCopyLog.textContent = original; }, 1200);
+      } catch (err) {
+        addLog('Could not copy to clipboard: ' + err, 'error');
+      }
+    });
+
+    els.tabFlash.addEventListener('click', () => selectTab('flash'));
+    els.tabTerminal.addEventListener('click', () => selectTab('terminal'));
+
+    function selectTab(tab, opts) {
+      state.activeTab = tab;
+      els.tabFlash.classList.toggle('is-active', tab === 'flash');
+      els.tabTerminal.classList.toggle('is-active', tab === 'terminal');
+      els.flashRow.style.display = tab === 'flash' ? '' : 'none';
+      if (!(opts && opts.skipHash)) {
+        try { history.replaceState(null, '', '#' + tab); } catch (e) { location.hash = tab; }
+      }
+      const neededMode = tab === 'terminal' ? 'serial' : 'esptool';
+      if (state.connected && state.connMode !== neededMode) {
+        addLog((tab === 'terminal' ? 'Serial Terminal' : 'Flash Console') + ' needs its own connection — disconnecting.', 'sys');
+        disconnectDevice();
+      } else if (tab === 'terminal') {
+        startTerminalStream();
+      }
+    }
+
+    selectTab(location.hash === '#terminal' ? 'terminal' : 'flash', { skipHash: true });
+
+    // --- About modal ---
+    els.btnAbout.addEventListener('click', () => els.aboutOverlay.classList.add('is-open'));
+    els.btnAboutClose.addEventListener('click', () => els.aboutOverlay.classList.remove('is-open'));
+    els.aboutOverlay.addEventListener('click', () => els.aboutOverlay.classList.remove('is-open'));
+    els.aboutCard.addEventListener('click', (e) => e.stopPropagation());
+
+    // --- Theme ---
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    function currentThemeMode() {
+      return document.documentElement.getAttribute('data-theme-mode') || 'auto';
+    }
+    function applyTheme(mode) {
+      const dark = mode === 'auto' ? mql.matches : mode === 'dark';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme-mode', mode);
+      try { localStorage.setItem('bb-theme', mode); } catch (e) { }
+      els.themeSwitch.querySelectorAll('.bb-theme-btn').forEach((btn) => {
+        btn.classList.toggle('is-active', btn.dataset.mode === mode);
+      });
+    }
+    mql.addEventListener('change', () => {
+      if (currentThemeMode() === 'auto') applyTheme('auto');
+    });
+    els.themeSwitch.querySelectorAll('.bb-theme-btn').forEach((btn) => {
+      btn.addEventListener('click', () => applyTheme(btn.dataset.mode));
+    });
+    applyTheme(currentThemeMode());
+
+    // --- Manifest (firmware version picker + flash part list) ---
+    // Tagged releases (vX.Y.Z) come from versions.json, newest first — each
+    // is a self-hosted copy under versions/<tag>/, published by release.yml
+    // specifically so this page never has to fetch a GitHub Release's own
+    // asset URLs (inconsistent CORS behavior for fetch(), fine for a plain
+    // download link but not for this page's own flashing code). Capped to
+    // the 3 most recent so the list doesn't grow forever — older releases
+    // are still on GitHub's Releases page, just not in this dropdown.
+    // "Nightly (main)" (root manifest.json/*.bin, rebuilt on every push to
+    // main by pages.yml) is last, not first — the default pick for a
+    // random visitor should be the last stable release, not whatever's
+    // currently on the tip of main.
+    const MAX_RELEASES_SHOWN = 3;
+    let manifestParts = null;
+
+    function loadManifest(url) {
+      manifestParts = null;
+      updateFlashButtons();
+      return fetch(url).then((r) => r.json()).then((manifest) => {
+        manifestParts = manifest.builds[0].parts;
+        updateFlashButtons();
+        return manifest;
+      }).catch(() => {
+        manifestParts = null;
+        updateFlashButtons();
+      });
+    }
+
+    // Fetched from raw.githubusercontent.com, not the same-origin copy —
+    // GitHub Pages' own edge cache here is keyed by path only (confirmed
+    // live: a cache-busting query string made no difference at all, same
+    // stale response either way) with a 10-minute max-age, so a brand-new
+    // release could sit invisible in this dropdown for up to that long.
+    // raw.githubusercontent.com serves the identical file with a shorter
+    // 5-minute cache and sends Access-Control-Allow-Origin: * (confirmed
+    // live), so this cross-origin fetch just works without a CORS proxy.
+    fetch('https://raw.githubusercontent.com/kyletaylored/barkboard/main/docs/versions.json')
+      .then((r) => r.json()).catch(() => []).then((versions) => {
+      const opts = [];
+      versions.slice(0, MAX_RELEASES_SHOWN).forEach((v, i) => {
+        opts.push('<option value="../' + v.manifest + '">' + v.version + (i === 0 ? ' (latest)' : '') + '</option>');
+      });
+      opts.push('<option value="../manifest.json">Nightly (main)</option>');
+      els.firmwareSelect.innerHTML = opts.join('');
+      els.firmwareSelect.disabled = false;
+      loadManifest(els.firmwareSelect.value);
+    });
+
+    els.firmwareSelect.addEventListener('change', () => loadManifest(els.firmwareSelect.value));
+
+    // --- Device connection state ---
+    // Two independent connection modes, never mixed: 'esptool' talks to the chip's ROM
+    // bootloader (required for chip info + Program/Erase, and necessarily resets the
+    // board to get there) while 'serial' is a plain WebSerial open for tailing the
+    // running app's own output, with no reset at all. Switching tabs while connected
+    // in the wrong mode disconnects rather than silently reusing the connection.
+    let port = null;
+    let transport = null;
+    let esploader = null;
+    let deviceInfo = null;
+    let inBootloader = false;
+
+    function setStatus(label, cls) {
+      els.statusLabel.textContent = label;
+      els.statusPill.classList.remove('is-connecting', 'is-connected');
+      if (cls) els.statusPill.classList.add(cls);
+    }
+
+    function updateFlashButtons() {
+      const disabled = !state.connected || state.connMode !== 'esptool' || state.flashing || state.erasing;
+      els.btnProgram.disabled = disabled || !manifestParts;
+      els.btnErase.disabled = disabled;
+      els.btnProgram.style.opacity = disabled ? 0.45 : 1;
+      els.btnErase.style.opacity = disabled ? 0.45 : 1;
+      els.btnConnect.disabled = state.flashing || state.erasing;
+    }
+
+    function updateChips() {
+      if (deviceInfo) {
+        els.chipsWrap.style.display = '';
+        els.chipType.textContent = deviceInfo.chipType;
+        els.chipMac.textContent = deviceInfo.mac;
+        els.chipFlash.textContent = deviceInfo.flash;
+      } else {
+        els.chipsWrap.style.display = 'none';
+      }
+    }
+
+    function setConnectedUI(connected) {
+      state.connected = connected;
+      els.btnConnect.textContent = connected ? 'Disconnect' : 'Connect Device';
+      if (connected) setStatus('Connected', 'is-connected');
+      else if (!state.connecting) setStatus('Not connected');
+      updateFlashButtons();
+    }
+
+    els.btnConnect.addEventListener('click', () => {
+      if (state.connecting) return;
+      if (state.connected) { disconnectDevice(); return; }
+      if (state.activeTab === 'terminal') connectSerialOnly();
+      else connectEsptool();
+    });
+
+    async function connectEsptool() {
+      if (!('serial' in navigator)) {
+        addLog('WebSerial is not supported in this browser.', 'error');
+        return;
+      }
+      state.connecting = true;
+      els.btnConnect.disabled = true;
+      setStatus('Connecting…', 'is-connecting');
+      try {
+        port = await navigator.serial.requestPort();
+        transport = new Transport(port, true);
+        esploader = new ESPLoader({ transport, baudrate: 115200, terminal, debugLogging: false });
+        addLog('Connecting...', 'sys');
+        const chipName = await esploader.main();
+        inBootloader = true;
+        addLog('Connected successfully.', 'ok');
+        const mac = await esploader.chip.readMac(esploader);
+        addLog('Detecting flash size...', 'sys');
+        const flash = await esploader.detectFlashSize();
+        deviceInfo = { chipType: chipName, mac, flash };
+        updateChips();
+        state.connMode = 'esptool';
+        state.connecting = false;
+        els.btnConnect.disabled = false;
+        setConnectedUI(true);
+      } catch (err) {
+        addLog('Connection failed: ' + err, 'error');
+        state.connecting = false;
+        els.btnConnect.disabled = false;
+        port = null; transport = null; esploader = null; inBootloader = false;
+        state.connMode = null;
+        setConnectedUI(false);
+      }
+    }
+
+    async function connectSerialOnly() {
+      if (!('serial' in navigator)) {
+        addLog('WebSerial is not supported in this browser.', 'error');
+        return;
+      }
+      state.connecting = true;
+      els.btnConnect.disabled = true;
+      setStatus('Connecting…', 'is-connecting');
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        state.connMode = 'serial';
+        state.connecting = false;
+        els.btnConnect.disabled = false;
+        setConnectedUI(true);
+        addLog('[connected — streaming at 115200 baud]', 'sys');
+        startTerminalStream();
+      } catch (err) {
+        addLog('Connection failed: ' + err, 'error');
+        state.connecting = false;
+        els.btnConnect.disabled = false;
+        port = null;
+        state.connMode = null;
+        setConnectedUI(false);
+      }
+    }
+
+    async function disconnectDevice() {
+      await stopTerminalMode();
+      try {
+        if (state.connMode === 'esptool' && transport) await transport.disconnect();
+        else if (state.connMode === 'serial' && port) await port.close();
+      } catch (e) { }
+      port = null; transport = null; esploader = null; inBootloader = false;
+      state.connMode = null;
+      deviceInfo = null;
+      updateChips();
+      setConnectedUI(false);
+      addLog('[disconnected]', 'sys');
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (state.connected) disconnectDevice();
+    });
+
+    // --- Serial terminal (plain WebSerial mode only — never runs alongside esptool) ---
+    let rawReadActive = false;
+    let termReader = null;
+    let terminalStreamPromise = null;
+
+    function startTerminalStream() {
+      if (state.connMode !== 'serial' || rawReadActive) return;
+      rawReadActive = true;
+      terminalStreamPromise = runTerminalStream();
+    }
+
+    async function runTerminalStream() {
+      // The serial driver delivers data in small raw USB chunks (often ~32 bytes),
+      // unrelated to the source's own line breaks — buffer and split on '\n' so one
+      // Serial.println() call becomes one log line instead of one line per chunk.
+      const decoder = new TextDecoder();
+      let lineBuffer = '';
+      const flushLine = (line) => addLog(line.replace(/\r$/, ''), 'default');
+      try {
+        while (port.readable && rawReadActive) {
+          termReader = port.readable.getReader();
+          try {
+            while (rawReadActive) {
+              const { value, done } = await termReader.read();
+              if (done) break;
+              lineBuffer += decoder.decode(value, { stream: true });
+              let idx;
+              while ((idx = lineBuffer.indexOf('\n')) >= 0) {
+                flushLine(lineBuffer.slice(0, idx));
+                lineBuffer = lineBuffer.slice(idx + 1);
+              }
+            }
+          } finally {
+            termReader.releaseLock();
+            termReader = null;
+          }
+        }
+      } catch (err) {
+        if (rawReadActive) addLog('[serial read error: ' + err + ']', 'error');
+      } finally {
+        if (lineBuffer) flushLine(lineBuffer);
+      }
+    }
+
+    // Closing the port while the reader still holds its lock throws InvalidStateError
+    // on the next open() — cancel the reader and wait for the read loop to fully exit
+    // (releasing the lock) before the caller proceeds to port.close().
+    async function stopTerminalMode() {
+      rawReadActive = false;
+      if (termReader) { try { await termReader.cancel(); } catch (e) { } }
+      if (terminalStreamPromise) { try { await terminalStreamPromise; } catch (e) { } }
+      terminalStreamPromise = null;
+    }
+
+    async function ensureBootloader() {
+      if (!inBootloader) {
+        addLog('Re-entering bootloader...', 'sys');
+        await esploader.connect();
+        inBootloader = true;
+      }
+    }
+
+    // --- Program / erase ---
+    async function fetchPart(part) {
+      // part.path is always written relative to docs/ root (both the
+      // nightly manifest.json and every docs/versions/<tag>/manifest.json
+      // use e.g. "bootloader.bin" or "versions/v1.2.0/bootloader.bin") —
+      // this page now lives one directory deeper, at docs/flash/, so every
+      // fetch needs the same '../' the manifest-URL options above already get.
+      const res = await fetch('../' + part.path);
+      const buf = await res.arrayBuffer();
+      return { data: new Uint8Array(buf), address: part.offset };
+    }
+
+    // Minimal MD5 (RFC 1321) so we can verify what actually landed in flash by comparing
+    // against the chip's own flashMd5sum() readback — the RTS-pin auto-reset isn't reliable
+    // on every CYD board variant, so "the board rebooted" is not proof the write succeeded,
+    // but a matching checksum is.
+    function md5Hex(bytes) {
+      function rotl(x, c) { return (x << c) | (x >>> (32 - c)); }
+      const s = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+        5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+        6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+      ];
+      const K = new Int32Array(64);
+      for (let i = 0; i < 64; i++) K[i] = (Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296)) | 0;
+
+      const msgLen = bytes.length;
+      let totalLen = msgLen + 1;
+      while (totalLen % 64 !== 56) totalLen++;
+      totalLen += 8;
+      const buf = new Uint8Array(totalLen);
+      buf.set(bytes, 0);
+      buf[msgLen] = 0x80;
+      const dv = new DataView(buf.buffer);
+      dv.setUint32(totalLen - 8, (msgLen * 8) >>> 0, true);
+      dv.setUint32(totalLen - 4, Math.floor((msgLen * 8) / 4294967296) >>> 0, true);
+
+      let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+      for (let chunkStart = 0; chunkStart < totalLen; chunkStart += 64) {
+        const M = new Int32Array(16);
+        for (let j = 0; j < 16; j++) M[j] = dv.getInt32(chunkStart + j * 4, true);
+        let A = a0, B = b0, C = c0, D = d0;
+        for (let i = 0; i < 64; i++) {
+          let F, g;
+          if (i < 16) { F = (B & C) | (~B & D); g = i; }
+          else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+          else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+          else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+          F = (F + A + K[i] + M[g]) | 0;
+          A = D; D = C; C = B;
+          B = (B + rotl(F, s[i])) | 0;
+        }
+        a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
+      }
+      const out = new Uint8Array(16);
+      const odv = new DataView(out.buffer);
+      odv.setInt32(0, a0, true); odv.setInt32(4, b0, true);
+      odv.setInt32(8, c0, true); odv.setInt32(12, d0, true);
+      return Array.from(out).map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function verifyWrittenFlash(files) {
+      let allOk = true;
+      for (const file of files) {
+        const expected = md5Hex(file.data);
+        const actual = await esploader.flashMd5sum(file.address, file.data.length);
+        const ok = actual.toLowerCase() === expected.toLowerCase();
+        addLog((ok ? 'Verified ' : 'MISMATCH ') + '0x' + file.address.toString(16) + ' (' + file.data.length + ' bytes)', ok ? 'ok' : 'error');
+        if (!ok) allOk = false;
+      }
+      return allOk;
+    }
+
+    els.btnProgram.addEventListener('click', async () => {
+      if (!state.connected || state.flashing || state.erasing || !manifestParts) return;
+      state.flashing = true;
+      updateFlashButtons();
+      els.progressWrap.style.display = '';
+      els.progressLabel.textContent = 'Fetching firmware...';
+      els.progressPercent.textContent = '0%';
+      els.progressFill.style.width = '0%';
+      try {
+        await ensureBootloader();
+        const files = await Promise.all(manifestParts.map(fetchPart));
+        addLog(' ', 'sys');
+        addLog('Flashing started — do not unplug the board.', 'warn');
+        await esploader.writeFlash({
+          fileArray: files,
+          flashMode: 'keep',
+          flashFreq: 'keep',
+          flashSize: 'keep',
+          eraseAll: false,
+          compress: true,
+          reportProgress: (fileIndex, written, total) => {
+            const part = manifestParts[fileIndex];
+            els.progressLabel.textContent = 'Writing ' + part.path + '...';
+            const filePct = Math.round((written / total) * 100);
+            const overallPct = Math.round(((fileIndex + written / total) / manifestParts.length) * 100);
+            els.progressPercent.textContent = filePct + '%';
+            els.progressFill.style.width = overallPct + '%';
+          },
+        });
+        els.progressLabel.textContent = 'Verifying...';
+        els.progressPercent.textContent = '100%';
+        els.progressFill.style.width = '100%';
+        addLog('Wrote all partitions — verifying checksums before reset...', 'sys');
+        const verified = await verifyWrittenFlash(files);
+        await esploader.after('hard_reset');
+        inBootloader = false;
+        if (verified) {
+          addLog('Finished flashing firmware — all partitions verified.', 'ok');
+        } else {
+          addLog('Flashing finished but one or more partitions failed verification — do not trust this flash.', 'error');
+        }
+        addLog('Attempted an automatic reset. If the screen stays blank, press the board’s physical reset button once — auto-reset isn’t reliable on every CYD board.', 'sys');
+      } catch (err) {
+        addLog('Flashing failed: ' + err, 'error');
+      } finally {
+        state.flashing = false;
+        els.progressWrap.style.display = 'none';
+        updateFlashButtons();
+      }
+    });
+
+    els.btnErase.addEventListener('click', async () => {
+      if (!state.connected || state.flashing || state.erasing) return;
+      const ok = window.confirm('This will erase the entire flash on the connected device. This cannot be undone. Continue?');
+      if (!ok) return;
+      state.erasing = true;
+      updateFlashButtons();
+      try {
+        await ensureBootloader();
+        addLog(' ', 'sys');
+        addLog('Erasing flash memory. Please wait...', 'warn');
+        await esploader.eraseFlash();
+        addLog('Erase complete.', 'ok');
+      } catch (err) {
+        addLog('Erase failed: ' + err, 'error');
+      } finally {
+        state.erasing = false;
+        updateFlashButtons();
+      }
+    });
+
+    if (!('serial' in navigator)) {
+      els.unsupportedNote.style.display = 'block';
+      els.btnConnect.disabled = true;
+      els.btnConnect.style.opacity = 0.45;
+    }
+
+    updateFlashButtons();
+
+    // Live Demo + Monitor BarkBoard modals, same open/close/backdrop-click
+    // pattern as the About modal above.
+    const demoOverlay = document.getElementById('demoOverlay');
+    const demoCard = document.getElementById('demoCard');
+    document.getElementById('btnOpenDemo').addEventListener('click', () => demoOverlay.classList.add('is-open'));
+    document.getElementById('btnDemoClose').addEventListener('click', () => demoOverlay.classList.remove('is-open'));
+    demoOverlay.addEventListener('click', () => demoOverlay.classList.remove('is-open'));
+    demoCard.addEventListener('click', (e) => e.stopPropagation());
+
+    const monitorOverlay = document.getElementById('monitorOverlay');
+    const monitorCard = document.getElementById('monitorCard');
+    document.getElementById('btnOpenMonitor').addEventListener('click', () => monitorOverlay.classList.add('is-open'));
+    document.getElementById('btnMonitorClose').addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
+    monitorOverlay.addEventListener('click', () => monitorOverlay.classList.remove('is-open'));
+    monitorCard.addEventListener('click', (e) => e.stopPropagation());
+
+    // Escape closes whichever modal (About, Live Demo, Monitor BarkBoard —
+    // or any added later) is currently open.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      document.querySelectorAll('.bb-modal-backdrop.is-open').forEach((el) => el.classList.remove('is-open'));
+    });
+
+    // The WASM sim is ~1.3MB, so it's loaded on-demand the first time the
+    // Live Demo modal is opened rather than on every page visit.
+    (function () {
+      const simStatus = document.getElementById('simStatus');
+      let loadStarted = false;
+
+      document.getElementById('btnOpenDemo').addEventListener('click', () => {
+        if (loadStarted) return;
+        loadStarted = true;
+        simStatus.textContent = 'Loading demo…';
+
+        const script = document.createElement('script');
+        script.src = '../sim/barkboard_sim.js';
+        script.onload = () => {
+          window.createBarkBoardSim({
+            canvas: document.getElementById('canvas'),
+          }).then(() => {
+            simStatus.textContent = 'Running — click and drag with the mouse the way you\'d touch the panel.';
+          }).catch((err) => {
+            simStatus.textContent = 'Demo failed to start: ' + err;
+          });
+        };
+        script.onerror = () => {
+          simStatus.textContent = 'Demo failed to load.';
+        };
+        document.body.appendChild(script);
+      });
+    })();
+
+    // The landing page's demo preview links here as flash/#demo — auto-open
+    // (and kick off the WASM load) instead of landing on a closed modal the
+    // visitor then has to find and click again themselves. Must come after
+    // both btnOpenDemo listeners above are registered, since .click() only
+    // fires whichever listeners already exist at the time it's called.
+    if (location.hash === '#demo') document.getElementById('btnOpenDemo').click();
+  </script>
+</body>
+
+</html>
