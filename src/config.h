@@ -85,6 +85,12 @@
 // when this is on, matching the reference project's own behavior.
 #define NVS_KEY_AUTO_ROTATE "auto_rotate"
 #define AUTO_ROTATE_INTERVAL_MS 10000
+// Physical screen orientation, unrelated to NVS_KEY_AUTO_ROTATE above (that
+// one cycles dashboard screens). Off = the default landscape orientation
+// (TFT_eSPI rotation 1); on = flipped 180 degrees (rotation 3), for mounting
+// the board upside down so the USB cable exits from the top. Touch is
+// mirrored to match in display.cpp's readCb().
+#define NVS_KEY_FLIP_180 "flip_180"
 #define NVS_KEY_METRICS_ENABLED "dd_metrics_en" // bool; default false — opt-in device-health metrics, see storage.h
 // Separate from NVS_KEY_METRICS_ENABLED on purpose — custom metrics and
 // Datadog Events are both billable usage but distinct products; a user

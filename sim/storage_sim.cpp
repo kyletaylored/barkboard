@@ -9,6 +9,7 @@ String g_apiKey, g_appKey, g_site = "datadoghq.com";
 bool g_timeFormat24h = true;
 bool g_ledBreathe = true;
 bool g_autoRotate = false;
+bool g_displayFlipped = false;
 }
 
 void storage::begin() {}
@@ -30,6 +31,8 @@ void storage::setLedBreatheEnabled(bool v) { g_ledBreathe = v; }
 
 bool storage::getAutoRotateEnabled() { return g_autoRotate; }
 void storage::setAutoRotateEnabled(bool v) { g_autoRotate = v; }
+bool storage::getDisplayFlipped() { return g_displayFlipped; }
+void storage::setDisplayFlipped(bool v) { g_displayFlipped = v; }
 
 void storage::clearAll() { g_apiKey = ""; g_appKey = ""; g_site = ""; }
 bool storage::hasKeys() { return g_apiKey.length() > 0 && g_appKey.length() > 0; }

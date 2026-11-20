@@ -50,7 +50,7 @@ make flash PORT=/dev/cu.usbserial-1420
 2. **Pick your home WiFi.** Open the captive portal (sometimes opens automatically, some have to tap "sign in" on the the mobile network screen) with a scanned list of nearby 2.4GHz networks.
 3. **Open the setup page.** Once connected, reach the device at the `http://barkboard-<4-hex-chars>.local` address shown on the panel (unique per device — MAC-suffixed so two boards on one LAN don't collide) or its raw IP address.
 4. **Enter your Datadog keys.** Just two fields — **API Key** and **Application Key**. There's no site/region dropdown to fill in: the device detects it automatically (usually within a couple of seconds).
-5. **Optional preferences**, same page: a team filter (leave it blank and the device auto-detects your team from your API key), 12h/24h clock format, and a status-LED style.
+5. **Optional preferences**, same page: a team filter (leave it blank and the device auto-detects your team from your API key), 12h/24h clock format, a status-LED style, and a 180° screen flip for mounting the board upside down.
 
 A **"Forget WiFi & keys"** button on the same setup page resets everything and reboots into a fresh portal session.
 

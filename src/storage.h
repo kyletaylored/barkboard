@@ -30,6 +30,10 @@ namespace storage {
     bool   getAutoRotateEnabled();
     void   setAutoRotateEnabled(bool v);
 
+    // Off by default — see NVS_KEY_FLIP_180's doc comment in config.h.
+    bool   getDisplayFlipped();
+    void   setDisplayFlipped(bool v);
+
     // Opt-in — off by default. Sends a handful of device-health gauges
     // (free heap, WiFi RSSI, uptime) to the same Datadog org via
     // dd::submitDeviceMetrics(), tagged device:<AP SSID>. See its doc

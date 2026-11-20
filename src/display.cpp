@@ -1,6 +1,7 @@
 #include "display.h"
 #include "config.h"
 #include "ui.h"
+#include "storage.h"
 
 #include <SPI.h>
 #include <TFT_eSPI.h>
@@ -36,6 +37,8 @@ static lv_color_t buf1[SCREEN_WIDTH * DRAW_BUF_LINES];
 static lv_disp_drv_t  disp_drv;
 static lv_indev_drv_t indev_drv;
 
+static bool s_flipped = false;   // see display::setFlipped()
+
 static void flushCb(lv_disp_drv_t* d, const lv_area_t* a, lv_color_t* px) {
     uint32_t w = a->x2 - a->x1 + 1;
     uint32_t h = a->y2 - a->y1 + 1;
@@ -57,6 +60,13 @@ static void readCb(lv_indev_drv_t*, lv_indev_data_t* data) {
     int16_t y = map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_HEIGHT - 1);
     if (x < 0) x = 0; if (x >= SCREEN_WIDTH)  x = SCREEN_WIDTH  - 1;
     if (y < 0) y = 0; if (y >= SCREEN_HEIGHT) y = SCREEN_HEIGHT - 1;
+    // Flipped: the panel is drawn with TFT_eSPI rotation 3, so mirror both
+    // axes here rather than switching the touch controller to its rotation 3,
+    // which would shift the raw range and skew the TOUCH_*_MIN/MAX calibration.
+    if (s_flipped) {
+        x = SCREEN_WIDTH  - 1 - x;
+        y = SCREEN_HEIGHT - 1 - y;
+    }
     data->state = LV_INDEV_STATE_PRESSED;
     data->point.x = x;
     data->point.y = y;
@@ -83,8 +93,9 @@ static void lvglLogCb(const char* buf) {
 void display::begin() {
     lv_log_register_print_cb(lvglLogCb);
 
+    s_flipped = storage::getDisplayFlipped();
     tft.begin();
-    tft.setRotation(1);
+    tft.setRotation(s_flipped ? 3 : 1);
     logDisplaySetup();
     tft.fillScreen(TFT_BLACK);
     pinMode(TFT_BL, OUTPUT);
@@ -124,6 +135,17 @@ void display::tick() {
         s_holdStartMs = 0;
         s_holdTriggered = false;
     }
+}
+
+void display::setFlipped(bool flipped) {
+    if (flipped == s_flipped) return;
+    s_flipped = flipped;
+    tft.setRotation(flipped ? 3 : 1);
+    // Full repaint: whatever is on the panel now was drawn in the old
+    // orientation, and LVGL only redraws dirty areas.
+    lv_obj_invalidate(lv_scr_act());
+    lv_obj_invalidate(lv_layer_top());
+    lv_obj_invalidate(lv_layer_sys());
 }
 
 void display::setBacklight(uint8_t pct) {

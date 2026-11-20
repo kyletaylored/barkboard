@@ -20,6 +20,7 @@ void storage::begin() {
     if (!prefs.isKey(NVS_KEY_METRICS_ENABLED))   prefs.putBool(NVS_KEY_METRICS_ENABLED, false);
     if (!prefs.isKey(NVS_KEY_EVENTS_ENABLED))    prefs.putBool(NVS_KEY_EVENTS_ENABLED, false);
     if (!prefs.isKey(NVS_KEY_AUTO_ROTATE))       prefs.putBool(NVS_KEY_AUTO_ROTATE, false);
+    if (!prefs.isKey(NVS_KEY_FLIP_180))          prefs.putBool(NVS_KEY_FLIP_180, false);
 }
 
 String storage::getApiKey() {
@@ -84,6 +85,14 @@ bool storage::getAutoRotateEnabled() {
 
 void storage::setAutoRotateEnabled(bool v) {
     prefs.putBool(NVS_KEY_AUTO_ROTATE, v);
+}
+
+bool storage::getDisplayFlipped() {
+    return prefs.getBool(NVS_KEY_FLIP_180, false);
+}
+
+void storage::setDisplayFlipped(bool v) {
+    prefs.putBool(NVS_KEY_FLIP_180, v);
 }
 
 bool storage::getMetricsEnabled() {
