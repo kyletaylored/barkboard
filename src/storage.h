@@ -54,7 +54,7 @@ namespace storage {
     String getMetricMetadataVersion();
     void   setMetricMetadataVersion(const String& v);
 
-    void   clearAll();
+    void   clearAll();            // everything except getDisplayFlipped() — see storage.cpp
     bool   hasKeys();             // both api key and app key present
     bool   hasSite();
 }

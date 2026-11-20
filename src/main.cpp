@@ -846,6 +846,9 @@ void loop() {
         if (ui::factoryResetPending()) {
             performFactoryReset("Settings confirm");
         }
+        if (ui::flipTogglePending()) {
+            display::setFlipped(storage::getDisplayFlipped());
+        }
 
         // Incident state advance (tap on Incident Detail) — default
         // Active -> Stable -> Resolved fallback chain (BARKBOARD_PLAN.md §3.1).
