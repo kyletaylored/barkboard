@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.4.0
+
+Changes since v1.3.1:
+
+- Add an on-device screen flip toggle and keep orientation across resets (5b64235)
+- Release v1.3.1: publish versioned flasher artifacts + changelog (6cfd472)
+- Include math.h and time.h in the simulator's Arduino.h shim (107344b)
+
 ## v1.3.1
 
 Changes since v1.3.0:
