@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.1
+
+Changes since v1.3.0:
+
+- Release v1.3.0: publish versioned flasher artifacts + changelog (62e2ab1)
+- Add a Settings option to flip the display 180 degrees (7b1f9b3)
+
 ## v1.3.0
 
 Changes since v1.2.0:
