@@ -2,6 +2,7 @@
 #include "config.h"
 #include "storage.h"
 #include "datadog.h"
+#include "display.h"      // display::setFlipped() — applied live on save-prefs
 #include "wifi_setup.h"   // netcfg::apSsid() — shown in the device-metrics note
 
 #include <WiFi.h>
@@ -325,6 +326,13 @@ static void sendStatus(const String& banner, bool err=false) {
     html += "</select>";
     html += "<div class=\"bb-note\">Off by default so the dashboard behaves like a stream deck (only moves when you tap or swipe). "
             "Turn on for a rotating status-board look — swiping still works either way.</div>";
+    html += "<label>Screen orientation</label>";
+    bool flipped = storage::getDisplayFlipped();
+    html += "<select name=\"flip_180\">";
+    html += String("<option value=\"off\"") + (!flipped ? " selected" : "") + ">Normal</option>";
+    html += String("<option value=\"on\"")  + (flipped  ? " selected" : "") + ">Flipped 180&deg;</option>";
+    html += "</select>";
+    html += "<div class=\"bb-note\">Flip it if the board is mounted upside down (e.g. so the USB cable comes out the top). Touch is flipped to match, and it applies immediately.</div>";
     html += "<label>Clock format</label>";
     bool is24h = storage::getTimeFormat24h();
     html += "<select name=\"time_format\">";
@@ -461,14 +469,19 @@ static void handleSavePrefs() {
     for (int allowed : {30, 60, 120, 300}) if (pollSec == allowed) validPoll = true;
     storage::setPollIntervalSec(validPoll ? pollSec : DD_POLL_INTERVAL_SEC_DEFAULT);
     storage::setAutoRotateEnabled(server.arg("auto_rotate") == "on");
+    // Safe to touch the display here: portal::loop() (and so this handler)
+    // runs from the core-1 main loop, the same core as LVGL.
+    bool flip = server.arg("flip_180") == "on";
+    storage::setDisplayFlipped(flip);
+    display::setFlipped(flip);
     // Confirms what the form actually submitted vs. what got saved — if
     // led_style ever comes back empty/unexpected here, that's a form
     // problem; if it's correct here but the LED still doesn't change,
     // that's downstream in updateMoodLed()/the LEDC hardware layer instead.
-    Serial.printf("[portal] save-prefs: time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s events_enabled=%s auto_rotate=%s\n",
+    Serial.printf("[portal] save-prefs: time_format=%s led_style=%s -> ledBreatheEnabled=%s metrics_enabled=%s events_enabled=%s auto_rotate=%s flip_180=%s\n",
                   server.arg("time_format").c_str(), server.arg("led_style").c_str(),
                   ledBreathe ? "true" : "false", server.arg("metrics_enabled").c_str(), server.arg("events_enabled").c_str(),
-                  server.arg("auto_rotate").c_str());
+                  server.arg("auto_rotate").c_str(), server.arg("flip_180").c_str());
     server.sendHeader("Location", "/?prefs=saved");
     server.send(303, "text/plain", "");
 }
