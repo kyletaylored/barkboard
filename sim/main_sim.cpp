@@ -81,6 +81,12 @@ static void tickClock() {
     ui::setClockText(buf);
 }
 
+// Simulator counterpart to main.cpp's ui::flipTogglePending() handling.
+static void applyFlipIfToggled() {
+    if (!ui::flipTogglePending()) return;
+    lv_disp_set_rotation(nullptr, storage::getDisplayFlipped() ? LV_DISP_ROT_180 : LV_DISP_ROT_NONE);
+}
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
 
@@ -94,6 +100,10 @@ int main(int argc, char** argv) {
     disp_drv.ver_res  = SCREEN_HEIGHT;
     disp_drv.flush_cb = sdl_display_flush;
     disp_drv.draw_buf = &draw_buf;
+    // The device rotates in hardware (TFT_eSPI rotation 3, see display.cpp);
+    // the simulator has no panel to rotate, so it uses LVGL's software
+    // rotation for the Settings screen's SCREEN: FLIPPED toggle instead.
+    disp_drv.sw_rotate = 1;
     lv_disp_drv_register(&disp_drv);
 
     lv_indev_drv_init(&indev_drv);
@@ -127,11 +137,13 @@ int main(int argc, char** argv) {
     emscripten_set_main_loop([]() {
         lv_timer_handler();
         tickClock();
+        applyFlipIfToggled();
     }, 0, 1);
 #else
     while (1) {
         lv_timer_handler();
         tickClock();
+        applyFlipIfToggled();
         SDL_Delay(5);
     }
 #endif

@@ -120,7 +120,13 @@ void storage::setMetricMetadataVersion(const String& v) {
 }
 
 void storage::clearAll() {
+    // Screen orientation survives a reset: it describes how the board is
+    // physically mounted, which doesn't change when WiFi/keys are wiped. Without
+    // this, an upside-down board would come back from "Forget WiFi & keys" or a
+    // factory reset showing its setup screens upside down.
+    bool flipped = getDisplayFlipped();
     prefs.clear();
+    setDisplayFlipped(flipped);
 }
 
 bool storage::hasKeys() {

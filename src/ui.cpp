@@ -370,6 +370,7 @@ static lv_obj_t* s_settingsChirp  = nullptr;
 static lv_obj_t* s_settingsReset  = nullptr;
 static lv_obj_t* s_settingsResult = nullptr;
 static lv_obj_t* s_settingsQr     = nullptr;
+static lv_obj_t* s_settingsFlip   = nullptr;
 static ui::Screen s_screenBeforeSettings = ui::Screen::Overview;
 // volatile — chirpMuted() is now read from the core-0 net task (main.cpp's
 // netTask(), for the new-alert chirp), not just core 1.
@@ -382,6 +383,7 @@ static ui::Screen s_screenBeforeSettings = ui::Screen::Overview;
 static volatile bool s_chirpMuted = true;
 static int       s_resetConfirmArmed = 0;   // 0=idle, 1=armed (tap again to confirm)
 static volatile bool s_redetectSitePending = false;
+static volatile bool s_flipTogglePending   = false;   // see ui::flipTogglePending()
 static volatile bool s_factoryResetPending = false;
 
 static void rotateTo(int idx, bool fromUser);
@@ -2444,9 +2446,32 @@ static void buildSettingsIfNeeded() {
     lv_label_set_text(resetLbl, "FACTORY RESET");
     lv_obj_center(resetLbl);
 
+    // Screen flip, beside FACTORY RESET. Same toggling-button pattern as
+    // CHIRP above. The new value is saved here, but the actual rotation is
+    // left to main.cpp's loop via flipTogglePending(), so ui.cpp stays free of
+    // TFT_eSPI (it's shared with the simulator) and the panel isn't rotated
+    // in the middle of LVGL dispatching this click.
+    s_settingsFlip = lv_btn_create(s_settingsScr);
+    lv_obj_set_size(s_settingsFlip, 138, 30);
+    lv_obj_align(s_settingsFlip, LV_ALIGN_BOTTOM_RIGHT, -12, -14);
+    lv_obj_set_style_bg_color(s_settingsFlip, COLOR_SURFACE, 0);
+    lv_obj_set_style_border_width(s_settingsFlip, 0, 0);
+    lv_obj_add_event_cb(s_settingsFlip, [](lv_event_t*) {
+        bool flipped = !storage::getDisplayFlipped();
+        storage::setDisplayFlipped(flipped);
+        lv_label_set_text(lv_obj_get_child(s_settingsFlip, 0), flipped ? "SCREEN: FLIPPED" : "SCREEN: NORMAL");
+        s_flipTogglePending = true;
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* flipLbl = lv_label_create(s_settingsFlip);
+    lv_obj_set_style_text_font(flipLbl, &outfit_bold_14, 0);
+    lv_label_set_text(flipLbl, "SCREEN: NORMAL");
+    lv_obj_center(flipLbl);
+
+    // Re-detect result line. Sits between the site label and the button row,
+    // since the bottom-right corner it used to occupy now holds the flip button.
     s_settingsResult = lv_label_create(s_settingsScr);
     lv_obj_set_style_text_font(s_settingsResult, &outfit_thin_12, 0);
-    lv_obj_align(s_settingsResult, LV_ALIGN_BOTTOM_RIGHT, -12, -20);
+    lv_obj_set_pos(s_settingsResult, 12, 134);
     logMemCheckpoint("after Settings");
 }
 
@@ -2456,6 +2481,9 @@ void ui::showSettings() {
     s_resetConfirmArmed = 0;
     lv_label_set_text(lv_obj_get_child(s_settingsReset, 0), "FACTORY RESET");
     lv_label_set_text(s_settingsResult, "");
+    // Re-read on every visit, since the web Settings page can change it too.
+    lv_label_set_text(lv_obj_get_child(s_settingsFlip, 0),
+                      storage::getDisplayFlipped() ? "SCREEN: FLIPPED" : "SCREEN: NORMAL");
 
     // <hostname>.local resolves to the same address as the IP line above via
     // mDNS (netcfg::begin() registers it) — worth surfacing directly since
@@ -2496,6 +2524,12 @@ void ui::applyRedetectResult(bool ok, const String& site, const String& err) {
         lv_label_set_text(s_settingsResult, ("Fail: " + err).c_str());
         lv_obj_set_style_text_color(s_settingsResult, COLOR_ALERT, 0);
     }
+}
+
+bool ui::flipTogglePending() {
+    if (!s_flipTogglePending) return false;
+    s_flipTogglePending = false;
+    return true;
 }
 
 bool ui::factoryResetPending() {

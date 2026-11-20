@@ -140,6 +140,9 @@ namespace ui {
     bool redetectSitePending();
     void applyRedetectResult(bool ok, const String& site, const String& err);
     bool factoryResetPending();
+    // True once after the SCREEN button was tapped; the new value is already
+    // in storage::getDisplayFlipped(), the caller applies it to the panel.
+    bool flipTogglePending();
 
     // Bits idle screen (BARKBOARD_PLAN.md §4 Easter egg) — tap the Bits
     // mark in any status bar to reach it; tap back to return to whichever
