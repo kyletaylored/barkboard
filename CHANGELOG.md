@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.0
+
+Changes since v1.2.0:
+
+- Make landing page nav match flash page's exactly (41af249)
+- Split web flasher into its own /flash subpage, add a marketing landing page (29d3933)
+- Modal polish: sans-serif titles, short Live Demo blurb, Escape to close (597c932)
+- Replace collapsible details cards with modal-triggering buttons on flasher page (92dabd6)
+- Fix WASM build race in CI, update docs for mDNS/QR/BOOT-button changes (871abcc)
+- Release v1.2.0: publish versioned flasher artifacts + changelog (495a5ef)
+
 ## v1.2.0
 
 Changes since v1.1.0:
