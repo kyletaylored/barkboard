@@ -44,6 +44,12 @@ uint32_t millis(void);
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+// The real ESP32 Arduino.h pulls in <math.h> and <time.h> for every sketch,
+// and src/ relies on that (NAN in datadog.h, isnan/time/time_t/struct tm in
+// ui.cpp). Older Emscripten libc++ headers happened to include them
+// transitively; Emscripten 7.0.0's don't, which broke the WASM build.
+#include <math.h>
+#include <time.h>
 
 #include "WString.h"
 
